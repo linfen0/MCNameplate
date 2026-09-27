@@ -285,12 +285,14 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
   }
 
   const canvasRect: Rect = { x: 0, y: 0, width: layout.width, height: layout.height }
-  const panel: Rect = {
-    x: layout.frame,
-    y: layout.frame,
-    width: layout.width - layout.frame * 2,
-    height: layout.height - layout.frame * 2,
-  }
+  const panel: Rect = theme.borderFromTexture
+    ? { x: 0, y: 0, width: layout.width, height: layout.height }
+    : {
+        x: layout.frame,
+        y: layout.frame,
+        width: layout.width - layout.frame * 2,
+        height: layout.height - layout.frame * 2,
+      }
 
   // ---- 底板（轴对齐，正面在 Z = 0，向后延伸出厚度）----
   addMaterial({ name: '底板', color: theme.frame.fill })
@@ -314,43 +316,56 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     parts.push({ name: '背景', group: '名牌', quads: [quadAt(to3d, panel, RAISED, '背景纹理')] })
   }
 
-  // ---- 外框倒角 ----
-  const bevelParts: Array<{ name: string; rect: Rect; material: string; color: string }> = [
-    {
-      name: '外框-上',
-      rect: { x: layout.frame, y: layout.frame, width: layout.width - layout.frame * 2, height: layout.bevel },
-      material: '外框-高光',
-      color: theme.frame.light,
-    },
-    {
-      name: '外框-左',
-      rect: { x: layout.frame, y: layout.frame, width: layout.bevel, height: layout.height - layout.frame * 2 },
-      material: '外框-高光',
-      color: theme.frame.light,
-    },
-    {
-      name: '外框-下',
-      rect: {
-        x: layout.frame + layout.bevel,
-        y: layout.height - layout.frame - layout.bevel,
-        width: layout.width - layout.frame * 2 - layout.bevel,
-        height: layout.bevel,
-      },
-      material: '外框-阴影',
-      color: theme.frame.dark,
-    },
-    {
-      name: '外框-右',
-      rect: {
-        x: layout.width - layout.frame - layout.bevel,
-        y: layout.frame + layout.bevel,
-        width: layout.bevel,
-        height: layout.height - layout.frame * 2 - layout.bevel,
-      },
-      material: '外框-阴影',
-      color: theme.frame.dark,
-    },
-  ]
+  // ---- 外框倒角（贴图自带边框时不做，避免盖住用户自己的边框）----
+  const bevelParts: Array<{ name: string; rect: Rect; material: string; color: string }> =
+    theme.borderFromTexture
+      ? []
+      : [
+          {
+            name: '外框-上',
+            rect: {
+              x: layout.frame,
+              y: layout.frame,
+              width: layout.width - layout.frame * 2,
+              height: layout.bevel,
+            },
+            material: '外框-高光',
+            color: theme.frame.light,
+          },
+          {
+            name: '外框-左',
+            rect: {
+              x: layout.frame,
+              y: layout.frame,
+              width: layout.bevel,
+              height: layout.height - layout.frame * 2,
+            },
+            material: '外框-高光',
+            color: theme.frame.light,
+          },
+          {
+            name: '外框-下',
+            rect: {
+              x: layout.frame + layout.bevel,
+              y: layout.height - layout.frame - layout.bevel,
+              width: layout.width - layout.frame * 2 - layout.bevel,
+              height: layout.bevel,
+            },
+            material: '外框-阴影',
+            color: theme.frame.dark,
+          },
+          {
+            name: '外框-右',
+            rect: {
+              x: layout.width - layout.frame - layout.bevel,
+              y: layout.frame + layout.bevel,
+              width: layout.bevel,
+              height: layout.height - layout.frame * 2 - layout.bevel,
+            },
+            material: '外框-阴影',
+            color: theme.frame.dark,
+          },
+        ]
   for (const item of bevelParts) {
     addMaterial({ name: item.material, color: item.color })
     parts.push({ name: item.name, group: '外框倒角', quads: [quadAt(to3d, item.rect, RAISED * 1.5, item.material)] })

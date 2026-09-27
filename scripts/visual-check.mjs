@@ -99,6 +99,7 @@ function makeBlockTexture() {
     for (let x = 0; x < 16; x++) {
       const i = (y * 16 + x) * 4
       const n = (x * 7 + y * 13) % 10
+      // 贴近真实方块贴图：外圈 1px 金边 + 内部棕色噪点；四角换成醒目色用来验证九宫格
       const corner =
         x < 2 && y < 2
           ? [255, 0, 0]
@@ -109,7 +110,9 @@ function makeBlockTexture() {
               : x > 13 && y > 13
                 ? [255, 255, 0]
                 : null
-      const base = corner ?? (n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42])
+      const ring = x === 0 || y === 0 || x === 15 || y === 15
+      const base =
+        corner ?? (ring ? [217, 162, 39] : n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42])
       png.data[i] = base[0]
       png.data[i + 1] = base[1]
       png.data[i + 2] = base[2]
@@ -704,10 +707,8 @@ async function main() {
       const unit = Math.max(1, Math.round(canvas.height / 256))
       // 底纹铺满整个面板（外框之内）。九宫格把源贴图的第 0 个纹理像素放在面板第一格，
       // 所以采样点要取「第一格的中心」，偏一两个像素就落到源图第 1 个像素上了。
-      // 底纹铺满面板（frame 起），但最外 1 格是倒角高光/阴影，会盖住第 0 个纹理像素；
-      // 所以取第 1 格的中心来采样（夹具里四角是 2×2 色块，第 1 格仍是角色）
-      const frame = 3 * unit
-      const sample = frame + unit + Math.floor(unit / 2)
+      // 贴图自带边框 → 底纹铺满整块画布，取第 1 格中心采样（夹具四角是 2×2 色块）
+      const sample = unit + Math.floor(unit / 2)
       const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const at = (x, y) => {
         const i = (y * canvas.width + x) * 4
@@ -740,6 +741,22 @@ async function main() {
       sampled.middle[0] > sampled.middle[2] + 25,
       '面板中部沿用贴图自身的材质色（棕色）',
       `rgb(${sampled.middle.join(',')})`,
+    )
+    // 贴图自带边框时，名牌不再自己套一层外框：最外圈的像素应当来自贴图本身
+    const edge = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+      const at = (x, y) => {
+        const i = (y * canvas.width + x) * 4
+        return [data[i], data[i + 1], data[i + 2]]
+      }
+      const mid = Math.floor(canvas.height / 2)
+      return { left: at(0, mid), top: at(Math.floor(canvas.width / 2), 0) }
+    })
+    check(
+      edge.left[0] > 150 && edge.left[1] > 100 && edge.left[2] < 150,
+      '最外圈就是贴图自带边框（金色），没有被名牌外框盖掉',
+      `左边缘 rgb(${edge.left.join(',')}) · 上边缘 rgb(${edge.top.join(',')})`,
     )
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })

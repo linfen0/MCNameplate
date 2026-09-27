@@ -223,18 +223,22 @@ export function composeNameplateSvg(input: ComposeSvgInput): string {
   const parts: string[] = []
   const defs: string[] = []
 
+  const borderFromTexture = theme.borderFromTexture === true
+
   // 1) 底板：外框底色
   parts.push(`  <g id="底板">`)
   parts.push(`    ${rect(0, 0, layout.width, layout.height, theme.frame.fill)}`)
   parts.push('  </g>')
 
   // 2) 背景纹理（面板尺寸，一个纹理像素 = unit）
-  const panel = {
-    x: layout.frame,
-    y: layout.frame,
-    width: layout.width - layout.frame * 2,
-    height: layout.height - layout.frame * 2,
-  }
+  const panel = borderFromTexture
+    ? { x: 0, y: 0, width: layout.width, height: layout.height }
+    : {
+        x: layout.frame,
+        y: layout.frame,
+        width: layout.width - layout.frame * 2,
+        height: layout.height - layout.frame * 2,
+      }
   if (theme.texture.kind === 'solid') {
     parts.push(`  <g id="背景-纯色">`)
     parts.push(`    ${rect(panel.x, panel.y, panel.width, panel.height, theme.texture.color)}`)
@@ -248,14 +252,16 @@ export function composeNameplateSvg(input: ComposeSvgInput): string {
     parts.push('  </g>')
   }
 
-  // 3) 外框倒角（高光上/左，阴影下/右）
+  // 3) 外框倒角（高光上/左，阴影下/右）；贴图自带边框时跳过
   const { frame, bevel, width, height } = layout
+  if (!borderFromTexture) {
   parts.push(`  <g id="外框倒角">`)
   parts.push(`    ${rect(frame, frame, width - frame * 2, bevel, theme.frame.light)}`)
   parts.push(`    ${rect(frame, frame, bevel, height - frame * 2, theme.frame.light)}`)
   parts.push(`    ${rect(frame + bevel, height - frame - bevel, width - frame * 2 - bevel, bevel, theme.frame.dark)}`)
   parts.push(`    ${rect(width - frame - bevel, frame + bevel, bevel, height - frame * 2 - bevel, theme.frame.dark)}`)
   parts.push('  </g>')
+  }
 
   // 4) 分割线
   if (layout.dividerWidth > 0) {
