@@ -355,6 +355,21 @@ export function buildTextCandidates(swatches: string[], lightBackground: boolean
   })
 }
 
+/** 亮侧 / 暗侧的亮度门槛：`light` 明显比中灰亮，`dark` 明显比中灰暗 */
+const SIDE_THRESHOLD: Record<ToneDirection, { test: (luminance: number) => boolean }> = {
+  light: { test: (luminance) => luminance >= 0.45 },
+  dark: { test: (luminance) => luminance <= 0.3 },
+}
+
+/**
+ * 只取某一侧的候选（亮侧或暗侧）。描边方案要分别取两侧：
+ * 亮侧当文字、暗侧当描边，两边都来自同一张色卡。
+ */
+export function sideCandidates(swatches: string[], direction: ToneDirection): TextCandidate[] {
+  const ladder = buildTextCandidates(swatches, direction === 'dark')
+  return ladder.filter((candidate) => SIDE_THRESHOLD[direction].test(relativeLuminance(candidate.color)))
+}
+
 function contrastWithLuminance(color: string, luminance: number): number {
   const l = relativeLuminance(color)
   return (Math.max(l, luminance) + 0.05) / (Math.min(l, luminance) + 0.05)
