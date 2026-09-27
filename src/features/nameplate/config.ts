@@ -31,8 +31,6 @@ export interface NameplateConfig {
   themeId: string
   /** 用户上传的方块贴图（themeId === 'custom' 时生效，支持 Mod 贴图） */
   customTexture: CustomTexture | null
-  /** 自定义贴图里每个纹理像素占几个基准网格单位（越大方块越大） */
-  textureTexelScale: number
   fontId: string
   uppercase: boolean
   shadow: boolean
@@ -133,7 +131,6 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   avatarFill: 0.92,
   themeId: DEFAULT_THEME_ID,
   customTexture: null,
-  textureTexelScale: 1,
   fontId: DEFAULT_FONT_ID,
   uppercase: true,
   shadow: true,

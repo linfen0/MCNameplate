@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from './raster'
 import { relativeLuminance } from './color'
 import { buildThemeFromTexture, extractPalette, paletteToCssGradient } from './palette'
-import { renderPanelTexture } from './textures'
 import type { RgbaImage } from './types'
 
 function solid(width: number, height: number, color: [number, number, number, number]): RgbaImage {
@@ -69,14 +68,20 @@ describe('extractPalette', () => {
 })
 
 describe('buildThemeFromTexture', () => {
-  it('生成 custom 类型底纹，并保留原始贴图', () => {
+  it('底纹由提取出的配色程序化生成，而不是平铺原贴图', () => {
     const image = blockTexture()
-    const theme = buildThemeFromTexture(image, { texelScale: 2 })
-    expect(theme.texture.kind).toBe('custom')
-    if (theme.texture.kind === 'custom') {
-      expect(theme.texture.image).toBe(image)
-      expect(theme.texture.texelScale).toBe(2)
+    const theme = buildThemeFromTexture(image)
+    expect(theme.texture.kind).toBe('noise')
+    if (theme.texture.kind === 'noise') {
+      const palette = extractPalette(image)
+      expect(theme.texture.palette).toEqual({
+        base: palette.base,
+        light: palette.light,
+        dark: palette.dark,
+      })
     }
+    // 贴图本身不能被塞进主题里当底图
+    expect(JSON.stringify(theme.texture)).not.toContain('image')
   })
 
   it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {
@@ -115,42 +120,6 @@ describe('buildThemeFromTexture', () => {
     const theme = buildThemeFromTexture(blockTexture(), { name: '石头方块' })
     expect(theme.name).toBe('石头方块')
     expect(theme.description).toContain('石头方块')
-  })
-})
-
-describe('自定义贴图作为面板底纹', () => {
-  it('按 texelScale 平铺：1 个纹理像素占 scale 格', () => {
-    const image = createImage(2, 2)
-    setPixel(image, 0, 0, [255, 0, 0, 255])
-    setPixel(image, 1, 0, [0, 255, 0, 255])
-    setPixel(image, 0, 1, [0, 0, 255, 255])
-    setPixel(image, 1, 1, [255, 255, 0, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 2 }, 8, 8, 1)
-    expect(tiled.width).toBe(8)
-    expect(tiled.height).toBe(8)
-    const at = (x: number, y: number) => {
-      const i = (y * 8 + x) * 4
-      return [tiled.data[i], tiled.data[i + 1], tiled.data[i + 2]]
-    }
-    // 面板底纹带轻微纵深压暗，所以按容差比较；关键是“哪一块像素来自哪个源像素”
-    const near = (actual: number[], expected: number[]) =>
-      expected.every((value, index) => Math.abs(actual[index] - value) <= 16)
-    expect(near(at(0, 0), [255, 0, 0])).toBe(true)
-    expect(near(at(2, 0), [0, 255, 0])).toBe(true)
-    expect(near(at(0, 2), [0, 0, 255])).toBe(true)
-    expect(near(at(2, 2), [255, 255, 0])).toBe(true)
-    // 平铺：x=4 回到红（2 个纹理像素 × 2 格）
-    expect(at(4, 0)).toEqual(at(0, 0))
-  })
-
-  it('贴图小于面板时按平铺重复', () => {
-    const image = solid(2, 2, [10, 20, 30, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 1 }, 8, 8, 1)
-    const at = (x: number, y: number) => tiled.data[(y * 8 + x) * 4]
-    // 横向平铺重复：x=6 与 x=0 取到同一源像素
-    expect(at(0, 0)).toBe(at(6, 0))
-    // 纵向有轻微压暗：上方比下方亮
-    expect(at(0, 0)).toBeGreaterThan(at(0, 7))
   })
 })
 

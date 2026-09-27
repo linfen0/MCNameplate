@@ -4,7 +4,7 @@
  */
 
 import { buildThemeFromTexture, type ExtractedPalette } from '../../lib/palette'
-import { getTheme, type Theme } from '../../lib/themes'
+import { DEFAULT_THEME_ID, getTheme, type Theme } from '../../lib/themes'
 import type { RgbaImage } from '../../lib/types'
 import type { NameplateConfig } from './config'
 
@@ -19,26 +19,21 @@ export interface CustomTexture {
 
 export const CUSTOM_THEME_ID = 'custom'
 
-const cache = new WeakMap<RgbaImage, Map<number, Theme>>()
+const cache = new WeakMap<RgbaImage, Theme>()
 
 export function resolveTheme(config: NameplateConfig): Theme {
   const custom = config.customTexture
-  if (config.themeId !== CUSTOM_THEME_ID || !custom) return getTheme(config.themeId)
+  if (config.themeId !== CUSTOM_THEME_ID) return getTheme(config.themeId)
+  // 选了自定义但还没上传贴图 → 回退到默认主题，而不是拿到一个随机的内置主题
+  if (!custom) return getTheme(DEFAULT_THEME_ID)
 
-  const scale = Math.max(1, Math.round(config.textureTexelScale))
-  let perImage = cache.get(custom.image)
-  if (!perImage) {
-    perImage = new Map()
-    cache.set(custom.image, perImage)
-  }
-  const hit = perImage.get(scale)
+  const hit = cache.get(custom.image)
   if (hit) return hit
 
   const theme = buildThemeFromTexture(custom.image, {
-    texelScale: scale,
     name: custom.name,
-    description: `由「${custom.name}」提取：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
+    description: `由「${custom.name}」提取配色：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
   })
-  perImage.set(scale, theme)
+  cache.set(custom.image, theme)
   return theme
 }

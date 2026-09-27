@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { Field, PixelButton, PixelChip, PixelSlider } from '../../../components/pixel'
+import { Field, PixelButton, PixelChip } from '../../../components/pixel'
 import { cx } from '../../../lib/cx'
 import { rgbaToCanvas } from '../../../lib/imageIo'
 import { paletteToCssGradient } from '../../../lib/palette'
@@ -45,7 +45,7 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
             {library.entries.length > 0 ? `${library.entries.length} 张` : '未上传'}
           </span>
         }
-        hint="拖入 16×16 的方块 PNG（原版材质包或 Mod 的 assets/…/textures/block 里那些），一次可多张，点选切换。配色由程序从贴图里提取。"
+        hint="拖入 16×16 的方块 PNG（原版材质包或 Mod 的 assets/…/textures/block 里那些），一次可多张，点选切换。贴图只当取色源：程序从中提取配色，再用这套配色生成底纹。"
       >
         <input
           ref={inputRef}
@@ -155,24 +155,13 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
             </div>
           </Field>
 
-          <PixelSlider
-            label="纹理缩放"
-            value={config.textureTexelScale}
-            min={1}
-            max={8}
-            step={1}
-            valueText={`1 纹理像素 = ${config.textureTexelScale} 格`}
-            onChange={(value) => patch({ textureTexelScale: value })}
-            hint="数值越大，方块显得越大（贴图放大后更粗犷）"
-          />
-
           <div className="flex flex-wrap gap-2">
             <PixelButton
               variant="ghost"
               onClick={() => patch({ themeId: 'custom' })}
               disabled={config.themeId === 'custom'}
             >
-              应用这张贴图
+              应用这套配色
             </PixelButton>
             <PixelButton
               variant="ghost"

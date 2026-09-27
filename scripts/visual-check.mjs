@@ -704,8 +704,26 @@ async function main() {
         theme: canvas.dataset.renderMode,
       }
     })
-    const near = sampled.top.every((value, index) => Math.abs(value - [122, 79, 42][index]) <= 30)
-    check(near, '画布底色确实换成了上传的贴图', `采样 rgb(${sampled.top.join(',')}) ≈ 主色 rgb(122,79,42)`)
+    // 贴图只当取色源：底纹应由提取出的 base/light/dark 程序化生成，
+    // 因此采样点应落在 {主色, 亮部, 暗部} 三者附近，且保持贴图的色相（棕 = r 明显大于 b）
+    const candidates = [
+      [122, 79, 42],
+      [138, 92, 52],
+      [98, 62, 30],
+    ]
+    const nearest = candidates
+      .map((color) => Math.max(...color.map((value, index) => Math.abs(value - sampled.top[index]))))
+      .sort((a, b) => a - b)[0]
+    check(
+      nearest <= 40,
+      '底纹由提取出的配色生成（不是平铺原图）',
+      `采样 rgb(${sampled.top.join(',')}) 距最近调色板色 ${nearest}`,
+    )
+    check(
+      sampled.top[0] > sampled.top[2] + 25,
+      '底纹保持了贴图的色相（棕色：r 明显大于 b）',
+      `r=${sampled.top[0]} b=${sampled.top[2]}`,
+    )
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
 

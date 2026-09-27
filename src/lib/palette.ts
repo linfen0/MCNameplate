@@ -151,17 +151,17 @@ export function extractPalette(image: RgbaImage): ExtractedPalette {
 }
 
 export interface TextureThemeOptions {
-  /** 每个纹理像素占几个基准网格单位（越大方块越大） */
-  texelScale?: number
   /** 主题名（界面展示） */
   name?: string
-  /** 深色底还是浅色底：影响文字色与外框的明暗方向 */
+  /** 主题描述（界面展示） */
   description?: string
 }
 
 /**
- * 由贴图 + 提取出的配色生成主题。
- * 文字色自动选与底色对比度更高的一侧，保证任何贴图上都读得清。
+ * 由贴图**提取配色**并生成主题。
+ *
+ * 注意：贴图只作为“取色源”，底纹是用提取出的 base/light/dark 现场程序化生成的颗粒面，
+ * **不会**把贴图本身平铺上去——平铺会让画面变成一块重复的花布，也压不住文字。
  */
 export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOptions = {}): Theme {
   const palette = extractPalette(image)
@@ -184,10 +184,10 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     dark: darken(palette.base, 0.72),
   }
 
+  // 用提取出的三层色生成颗粒底纹（与内置主题同一套生成器），而不是平铺原贴图
   const texture: PanelTexture = {
-    kind: 'custom',
-    image,
-    texelScale: Math.max(1, Math.round(options.texelScale ?? 1)),
+    kind: 'noise',
+    palette: { base: palette.base, light: palette.light, dark: palette.dark },
   }
 
   return {
