@@ -113,12 +113,23 @@ export function extractPalette(image: RgbaImage): ExtractedPalette {
     return rgbaToHex([item.r, item.g, item.b, 255])
   }
 
+  // 明暗优先从“有足够占比的主色簇”里挑最亮/最暗：
+  // 直接用亮度分位会被贴图的色彩分布带偏（例如 80% 是中间调时 85 分位仍然是中间调）
+  const significant = samples
+    .slice(0, 12)
+    .filter((sample) => sample.count >= total * 0.05)
+    .sort((a, b) => a.luminance - b.luminance)
+  const toHex = (sample: { r: number; g: number; b: number }) =>
+    rgbaToHex([clamp255(sample.r), clamp255(sample.g), clamp255(sample.b), 255])
+  const dark = significant.length > 0 ? toHex(significant[0]) : pick(0.15)
+  const light = significant.length > 0 ? toHex(significant[significant.length - 1]) : pick(0.85)
+
   const saturation = (sample: { r: number; g: number; b: number }): number => {
     const max = Math.max(sample.r, sample.g, sample.b)
     const min = Math.min(sample.r, sample.g, sample.b)
     return max === 0 ? 0 : (max - min) / max
   }
-  const accentSample = [...samples]
+  const accentSample = samples
     .slice(0, Math.min(12, samples.length))
     .sort((a, b) => saturation(b) * Math.sqrt(b.count) - saturation(a) * Math.sqrt(a.count))[0]
 
@@ -126,8 +137,8 @@ export function extractPalette(image: RgbaImage): ExtractedPalette {
 
   return {
     base,
-    light: pick(0.85),
-    dark: pick(0.15),
+    light,
+    dark,
     accent: saturation(accentSample) > 0.08
       ? rgbaToHex([clamp255(accentSample.r), clamp255(accentSample.g), clamp255(accentSample.b), 255])
       : pick(0.92),
@@ -182,7 +193,8 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
   return {
     id: 'custom',
     name: options.name ?? '自定义纹理',
-    description: options.description ?? `由贴图提取：主色 ${palette.base}`,
+    description:
+      options.description ?? `由「${options.name ?? '自定义纹理'}」提取：主色 ${palette.base}`,
     swatch: [palette.base, palette.light, palette.dark, palette.accent],
     texture,
     slot,

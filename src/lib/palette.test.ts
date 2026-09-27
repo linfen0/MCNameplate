@@ -107,7 +107,7 @@ describe('buildThemeFromTexture', () => {
   it('把提取出的配色挂在主题上，供界面展示', () => {
     const theme = buildThemeFromTexture(blockTexture())
     expect(theme.palette).toBeTruthy()
-    expect(theme.palette!.base).toBe(theme.texture.kind === 'custom' ? theme.palette!.base : '')
+    expect(theme.palette!.dominant.length).toBeGreaterThan(0)
     expect(theme.swatch.length).toBeGreaterThanOrEqual(3)
   })
 
@@ -125,26 +125,32 @@ describe('自定义贴图作为面板底纹', () => {
     setPixel(image, 1, 0, [0, 255, 0, 255])
     setPixel(image, 0, 1, [0, 0, 255, 255])
     setPixel(image, 1, 1, [255, 255, 0, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 2 }, 4, 4)
-    expect(tiled.width).toBe(4)
-    expect(tiled.height).toBe(4)
-    // 左上 2×2 应是红
-    expect([tiled.data[0], tiled.data[1], tiled.data[2]]).toEqual([255, 0, 0])
-    // x=2 起是绿
-    const green = (0 * 4 + 2) * 4
-    expect([tiled.data[green], tiled.data[green + 1], tiled.data[green + 2]]).toEqual([0, 255, 0])
-    // y=2 起是蓝
-    const blue = (2 * 4 + 0) * 4
-    expect([tiled.data[blue], tiled.data[blue + 1], tiled.data[blue + 2]]).toEqual([0, 0, 255])
+    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 2 }, 8, 8)
+    expect(tiled.width).toBe(8)
+    expect(tiled.height).toBe(8)
+    const at = (x: number, y: number) => {
+      const i = (y * 8 + x) * 4
+      return [tiled.data[i], tiled.data[i + 1], tiled.data[i + 2]]
+    }
+    // 面板底纹带轻微纵深压暗，所以按容差比较；关键是“哪一块像素来自哪个源像素”
+    const near = (actual: number[], expected: number[]) =>
+      expected.every((value, index) => Math.abs(actual[index] - value) <= 16)
+    expect(near(at(0, 0), [255, 0, 0])).toBe(true)
+    expect(near(at(2, 0), [0, 255, 0])).toBe(true)
+    expect(near(at(0, 2), [0, 0, 255])).toBe(true)
+    expect(near(at(2, 2), [255, 255, 0])).toBe(true)
+    // 平铺：x=4 回到红（2 个纹理像素 × 2 格）
+    expect(at(4, 0)).toEqual(at(0, 0))
   })
 
   it('贴图小于面板时按平铺重复', () => {
     const image = solid(2, 2, [10, 20, 30, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 1 }, 6, 6)
-    const at = (x: number, y: number) => tiled.data[(y * 6 + x) * 4]
-    // 同一位置的重复行应一致（受轻微纵深压暗影响，比较相对关系）
-    expect(at(0, 0)).toBeGreaterThan(at(5, 0))
-    expect(at(0, 0)).toBe(at(4, 0))
+    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 1 }, 8, 8)
+    const at = (x: number, y: number) => tiled.data[(y * 8 + x) * 4]
+    // 横向平铺重复：x=6 与 x=0 取到同一源像素
+    expect(at(0, 0)).toBe(at(6, 0))
+    // 纵向有轻微压暗：上方比下方亮
+    expect(at(0, 0)).toBeGreaterThan(at(0, 7))
   })
 })
 

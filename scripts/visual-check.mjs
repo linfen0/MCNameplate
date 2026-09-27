@@ -92,6 +92,23 @@ function makeTestSkin() {
   return PNG.sync.write(png)
 }
 
+/** 造一块 16×16 的方块贴图（主色 #7a4f2a，带少量明暗），用于验证“从贴图提取配色” */
+function makeBlockTexture() {
+  const png = new PNG({ width: 16, height: 16 })
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const i = (y * 16 + x) * 4
+      const n = (x * 7 + y * 13) % 10
+      const base = n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42]
+      png.data[i] = base[0]
+      png.data[i + 1] = base[1]
+      png.data[i + 2] = base[2]
+      png.data[i + 3] = 255
+    }
+  }
+  return PNG.sync.write(png)
+}
+
 /* ------------------------------------------------------------------ */
 /* 2. 浏览器内像素分析                                                  */
 /* ------------------------------------------------------------------ */
@@ -648,6 +665,49 @@ async function main() {
     await page.getByRole('button', { name: /石头/ }).click()
     await page.waitForTimeout(500)
     await exportCanvas(page, 'nameplate-stone.png')
+
+    // ---- 上传方块贴图 → 程序化提取配色 ----
+    const textureBuffer = makeBlockTexture()
+    await writeFile(path.join(OUT_DIR, 'test-block.png'), textureBuffer)
+    await page.evaluate(
+      ({ base64 }) => {
+        const input = document.querySelector('[data-testid="texture-input"]')
+        if (!input) throw new Error('texture input not found')
+        const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+        const file = new File([bytes], 'mod_block.png', { type: 'image/png' })
+        const transfer = new DataTransfer()
+        transfer.items.add(file)
+        input.files = transfer.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      },
+      { base64: textureBuffer.toString('base64') },
+    )
+    await page.waitForTimeout(900)
+
+    const textureUi = await page.evaluate(() => document.body.innerText)
+    check(textureUi.includes('程序提取的配色'), '界面出现「程序提取的配色」')
+    check(textureUi.includes('mod_block'), '上传的贴图进入贴图库')
+
+    const sampled = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+      const ctx = canvas.getContext('2d')
+      const unit = Math.max(1, Math.round(canvas.height / 256))
+      const inset = 4 * unit
+      // 取面板顶部（文字区之外）的一个点，那里就是纯底纹
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const at = (x, y) => {
+        const i = (y * canvas.width + x) * 4
+        return [data[i], data[i + 1], data[i + 2]]
+      }
+      return {
+        top: at(Math.floor(canvas.width * 0.8), inset + 2),
+        theme: canvas.dataset.renderMode,
+      }
+    })
+    const near = sampled.top.every((value, index) => Math.abs(value - [122, 79, 42][index]) <= 30)
+    check(near, '画布底色确实换成了上传的贴图', `采样 rgb(${sampled.top.join(',')}) ≈ 主色 rgb(122,79,42)`)
+    await exportCanvas(page, 'nameplate-custom-texture.png')
+    await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
 
     // ---- 说明页 ----
     await page.goto(`${BASE_URL}guide`, { waitUntil: 'networkidle' })
