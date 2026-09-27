@@ -36,7 +36,7 @@ import {
   projectCubeFaces,
   type CubeFaceName,
 } from './headGeometry'
-import { computeNameplateLayout, type LayoutPlan } from './layout'
+import { computeNameplateLayout, scrimSteps, type LayoutPlan } from './layout'
 import { resolveAspect } from './resolve'
 import type { TextStyle } from '../../lib/textPlan'
 import { layoutIdText } from './textLayout'
@@ -137,6 +137,8 @@ export interface SvgTextInput {
   placement: TextPlacement
   /** 是否带同族描边：切分字符图层时要多留出描边的那一列 */
   outline?: boolean
+  /** 同色系柔化底（亮字压浅底时才用），导出要和画布一致 */
+  scrim?: { color: string; alpha: number } | null
 }
 
 /**
@@ -347,13 +349,26 @@ export function composeNameplateSvg(input: ComposeSvgInput): string {
     parts.push('  </g>')
   }
 
-  // 8) ID 文字（每字符一个分组）
+  // 8) 文字柔化底（同色系铺底，画布上那一层在 SVG 里是矢量矩形）
+  if (text?.scrim) {
+    parts.push(`  <g id="文字柔化底">`)
+    for (const step of scrimSteps(layout, text.placement, text.scrim.alpha)) {
+      parts.push(
+        `    <rect x="${num(step.rect.x)}" y="${num(step.rect.y)}" width="${num(step.rect.width)}" height="${num(
+          step.rect.height,
+        )}" fill="${text.scrim.color}" fill-opacity="${num(step.alpha)}" />`,
+      )
+    }
+    parts.push('  </g>')
+  }
+
+  // 9) ID 文字（每字符一个分组）
   if (text) {
     const group = svgTextGroup(font, text)
     if (group) parts.push(`  <g id="ID文字">\n${group}\n  </g>`)
   }
 
-  // 9) 黄金辅助线
+  // 10) 黄金辅助线
   if (config.showGuides) {
     const thickness = Math.max(1, layout.unit)
     const splitX = layout.inner.x + Math.floor(layout.inner.width * config.ratioLeft)
@@ -485,7 +500,14 @@ export function buildNameplateSvg(
     theme,
     font,
     config,
-    text: { text, block, scale, placement, outline: outline !== null },
+    text: {
+      text,
+      block,
+      scale,
+      placement,
+      outline: outline !== null,
+      scrim: style?.scrim ? { color: style.scrim.color, alpha: style.scrim.alpha } : null,
+    },
     background,
     avatar,
   })

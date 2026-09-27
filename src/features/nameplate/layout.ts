@@ -196,4 +196,56 @@ export function computeNameplateLayout(input: LayoutInput): LayoutPlan {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* 文字柔化底（scrim）的几何：画布 / SVG / 3D 三处共用同一份             */
+/* ------------------------------------------------------------------ */
+
+export interface ScrimStep {
+  rect: Rect
+  alpha: number
+}
+
+/**
+ * 柔化底分两级铺：文字区整块铺满（保证每个字形像素都吃到），
+ * 外圈再铺半强度的一圈淡出。两级都对齐面板像素网格，三处导出对得上。
+ */
+export function scrimSteps(layout: LayoutPlan, text: Rect, alpha: number): ScrimStep[] {
+  const cell = Math.max(1, layout.unit)
+  const { inner } = layout
+  const clampX = (value: number) => Math.max(inner.x, Math.min(inner.x + inner.width, value))
+  const clampY = (value: number) => Math.max(inner.y, Math.min(inner.y + inner.height, value))
+  const snapX = (value: number, mode: 'floor' | 'ceil') =>
+    clampX(inner.x + (mode === 'floor' ? Math.floor : Math.ceil)((value - inner.x) / cell) * cell)
+  const snapY = (value: number, mode: 'floor' | 'ceil') =>
+    clampY(inner.y + (mode === 'floor' ? Math.floor : Math.ceil)((value - inner.y) / cell) * cell)
+
+  const coreX0 = snapX(text.x - cell, 'floor')
+  const coreY0 = snapY(text.y - cell, 'floor')
+  const coreX1 = snapX(text.x + text.width + cell, 'ceil')
+  const coreY1 = snapY(text.y + text.height + cell, 'ceil')
+  const ringX0 = snapX(coreX0 - cell * 2, 'floor')
+  const ringY0 = snapY(coreY0 - cell * 2, 'floor')
+  const ringX1 = snapX(coreX1 + cell * 2, 'ceil')
+  const ringY1 = snapY(coreY1 + cell * 2, 'ceil')
+
+  const steps: ScrimStep[] = []
+  const ring = { half: alpha * 0.5 }
+  if (coreY0 > ringY0) {
+    steps.push({ rect: { x: ringX0, y: ringY0, width: ringX1 - ringX0, height: coreY0 - ringY0 }, alpha: ring.half })
+  }
+  if (ringY1 > coreY1) {
+    steps.push({ rect: { x: ringX0, y: coreY1, width: ringX1 - ringX0, height: ringY1 - coreY1 }, alpha: ring.half })
+  }
+  if (coreX0 > ringX0) {
+    steps.push({ rect: { x: ringX0, y: coreY0, width: coreX0 - ringX0, height: coreY1 - coreY0 }, alpha: ring.half })
+  }
+  if (ringX1 > coreX1) {
+    steps.push({ rect: { x: coreX1, y: coreY0, width: ringX1 - coreX1, height: coreY1 - coreY0 }, alpha: ring.half })
+  }
+  if (coreX1 > coreX0 && coreY1 > coreY0) {
+    steps.push({ rect: { x: coreX0, y: coreY0, width: coreX1 - coreX0, height: coreY1 - coreY0 }, alpha })
+  }
+  return steps
+}
+
 export { GOLDEN_MINOR }

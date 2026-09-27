@@ -15,7 +15,7 @@ import type { NameplateConfig } from '../config'
 import { relativeLuminance, rgbaToHex } from '../../../lib/color'
 import { planText, type TextStyle } from '../../../lib/textPlan'
 import { scrimTintOf, type BackgroundSample, type ScrimPlan } from '../../../lib/scrim'
-import type { LayoutPlan } from '../layout'
+import { scrimSteps, type LayoutPlan } from '../layout'
 import { idDisplayText } from '../resolve'
 
 export { MIN_TEXT_CONTRAST } from '../../../lib/textPlan'
@@ -66,36 +66,16 @@ function sampleBackground(ctx: CanvasRenderingContext2D, rect: Rect): Background
 
 /**
  * 垫一层同色系的柔化底（scrim）：只在“亮字 + 投影都达不到阈值”时才用。
- * 分两级铺：文字区铺满（保证每个字形像素都吃到），外圈再点阵半格淡出，
- * 这样看起来像底纹自然变深，而不是贴了一块硬边补丁。两级都对齐面板像素网格。
+ * 几何来自 layout.scrimSteps —— 画布 / SVG / 3D 三处共用同一份，导出不会走样。
  */
 function drawScrim(ctx: CanvasRenderingContext2D, plan: LayoutPlan, scrim: ScrimPlan, text: Rect): void {
-  const cell = Math.max(1, plan.unit)
-  const floor = (value: number) => plan.inner.x + Math.floor((value - plan.inner.x) / cell) * cell
-  const ceil = (value: number) => plan.inner.x + Math.ceil((value - plan.inner.x) / cell) * cell
-  const clampX = (value: number) => Math.max(plan.inner.x, Math.min(plan.inner.x + plan.inner.width, value))
-  const clampY = (value: number) => Math.max(plan.inner.y, Math.min(plan.inner.y + plan.inner.height, value))
-  const core = { x: clampX(floor(text.x - cell)), y: clampY(floor(text.y - cell)) }
-  const coreRight = clampX(ceil(text.x + text.width + cell))
-  const coreBottom = clampY(ceil(text.y + text.height + cell))
-  const outer = { x: clampX(floor(core.x - cell * 2)), y: clampY(floor(core.y - cell * 2)) }
-  const outerRight = clampX(ceil(coreRight + cell * 2))
-  const outerBottom = clampY(ceil(coreBottom + cell * 2))
+  const steps = scrimSteps(plan, text, scrim.alpha)
+  if (steps.length === 0) return
   ctx.save()
   ctx.fillStyle = scrim.color
-  // 外圈：间隔一格的点阵，只有一半覆盖率 —— 像素画的 dither 淡出
-  ctx.globalAlpha = scrim.alpha * 0.5
-  for (let y = outer.y; y < outerBottom; y += cell * 2) {
-    for (let x = outer.x; x < outerRight; x += cell * 2) {
-      const inside = x >= core.x && x < coreRight && y >= core.y && y < coreBottom
-      if (inside) continue
-      ctx.fillRect(x, y, Math.min(cell, outerRight - x), Math.min(cell, outerBottom - y))
-    }
-  }
-  // 文字区：整块铺满，保证每个字形像素都吃到这一层
-  ctx.globalAlpha = scrim.alpha
-  if (coreRight > core.x && coreBottom > core.y) {
-    ctx.fillRect(core.x, core.y, coreRight - core.x, coreBottom - core.y)
+  for (const step of steps) {
+    ctx.globalAlpha = step.alpha
+    ctx.fillRect(step.rect.x, step.rect.y, step.rect.width, step.rect.height)
   }
   ctx.restore()
 }

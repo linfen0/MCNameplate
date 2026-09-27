@@ -26,7 +26,8 @@
 import { zipSync, strToU8 } from 'fflate'
 import { rgbaToDataUrl } from '../../lib/imageIo'
 import { getPixelFont, measureText } from '../../lib/pixelFont'
-import { cloneImage } from '../../lib/raster'
+import { hexToRgba } from '../../lib/color'
+import { cloneImage, getPixel, setPixel } from '../../lib/raster'
 import { extractHeadCube, type HeadCube } from '../../lib/skin'
 import { getPanelTexture } from '../../lib/textures'
 import type { Theme } from '../../lib/themes'
@@ -44,7 +45,7 @@ import { resolveAspect } from './resolve'
 import { layoutIdText } from './textLayout'
 import type { TextStyle } from '../../lib/textPlan'
 import { resolveTheme, withTextStyle } from './theme'
-import { computeNameplateLayout, type LayoutPlan } from './layout'
+import { computeNameplateLayout, scrimSteps, type LayoutPlan } from './layout'
 
 /* ------------------------------------------------------------------ */
 /* 场景数据结构                                                        */
@@ -265,6 +266,8 @@ export interface Build3DInput {
     shadow: string | null
     /** 同族描边色；有描边时文字会多出一圈几何体 */
     outline?: string | null
+    /** 同色系柔化底：烘进背景贴图，导出结果和画布一致 */
+    scrim?: { color: string; alpha: number } | null
   } | null
 }
 
@@ -312,7 +315,9 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
   } else {
     const texelsW = Math.ceil(panel.width / layout.unit)
     const texelsH = Math.ceil(panel.height / layout.unit)
-    const image = getPanelTexture(theme.texture, texelsW, texelsH, TEXTURE_SEED)
+    const base = getPanelTexture(theme.texture, texelsW, texelsH, TEXTURE_SEED)
+    // 有柔化底时把它烘进背景贴图（缓存里的图不能改，先克隆）：3D 导出的底纹观感与画布一致
+    const image = text?.scrim ? bakeScrim(base, layout, text.placement, text.scrim) : base
     const file = 'background.png'
     textures[file] = image
     addMaterial({ name: '背景纹理', color: '#ffffff', textureFile: file })
@@ -572,6 +577,39 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
       textures: Object.keys(textures).length,
     },
   }
+}
+
+/**
+ * 把同色系柔化底烘进背景贴图（贴图一个像素 = layout.unit 个画布像素）。
+ * 几何来自 layout.scrimSteps，和画布 / SVG 用的是同一份。
+ */
+function bakeScrim(
+  base: RgbaImage,
+  layout: LayoutPlan,
+  text: Rect,
+  scrim: { color: string; alpha: number },
+): RgbaImage {
+  const out = cloneImage(base)
+  const tint = hexToRgba(scrim.color)
+  const unit = Math.max(1, layout.unit)
+  for (const step of scrimSteps(layout, text, scrim.alpha)) {
+    const x0 = Math.max(0, Math.floor(step.rect.x / unit))
+    const y0 = Math.max(0, Math.floor(step.rect.y / unit))
+    const x1 = Math.min(out.width, Math.ceil((step.rect.x + step.rect.width) / unit))
+    const y1 = Math.min(out.height, Math.ceil((step.rect.y + step.rect.height) / unit))
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const [r, g, b, a] = getPixel(out, x, y)
+        setPixel(out, x, y, [
+          r + (tint[0] - r) * step.alpha,
+          g + (tint[1] - g) * step.alpha,
+          b + (tint[2] - b) * step.alpha,
+          a,
+        ])
+      }
+    }
+  }
+  return out
 }
 
 function isShadowPixel(rgb: string, fill: string, shadow: string): boolean {
@@ -1321,6 +1359,7 @@ export function buildNameplateModelZip(
         fill: theme.text.fill,
         shadow: textLayout.outline ? null : config.shadow ? theme.text.shadow : null,
         outline: textLayout.outline,
+        scrim: style?.scrim ? { color: style.scrim.color, alpha: style.scrim.alpha } : null,
       },
     }),
   )
