@@ -175,11 +175,11 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
   const palette = extractPalette(image)
   const lightBackground = palette.luminance > 0.32
 
-  // 底色偏亮时用深色字 + 浅色描边，反之亦然
-  const textFill = lightBackground ? '#1b1b1b' : '#ffffff'
-  const textShadow = lightBackground
-    ? lighten(palette.light, 0.55)
-    : darken(palette.dark, 0.55)
+  // 文字色优先从“提取出的色卡”里挑对比度最高的那张；对比度不够时才退回纯黑/纯白。
+  // 这样名牌的每个组件（底纹、外框、凹槽、文字）都来自同一张色卡。
+  const surface = palette.base
+  const textFill = pickTextColor(surface, [palette.light, palette.accent, palette.dark], lightBackground)
+  const textShadow = textShadowFor(textFill, surface, palette)
 
   const frame: ThemeColorSet = {
     fill: darken(palette.dark, 0.62),
@@ -232,6 +232,36 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     textured: true,
     palette,
   }
+}
+
+/** WCAG 对比度 */
+function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+/** 别用黑色描边把亮色字糊掉；优先取同一张色卡里的另一极 */
+function textShadowFor(fill: string, surface: string, palette: ExtractedPalette): string {
+  const candidates = [palette.dark, palette.light, shadeHex(surface, -0.6), shadeHex(surface, 0.6)]
+  const usable = candidates.filter((color) => contrastRatio(color, fill) > 1.6)
+  if (usable.length === 0) return shadeHex(surface, -0.6)
+  return usable.sort((a, b) => contrastRatio(b, fill) - contrastRatio(a, fill))[0]
+}
+
+/**
+ * 从色卡候选里挑文字色：取对比度最高的那张；
+ * 若最高对比度仍低于 4.5（WCAG AA），再退回纯黑/纯白保证可读。
+ */
+export function pickTextColor(
+  background: string,
+  candidates: string[],
+  lightBackground: boolean,
+): string {
+  const ranked = [...candidates].sort((a, b) => contrastRatio(b, background) - contrastRatio(a, background))
+  const best = ranked[0]
+  if (best && contrastRatio(best, background) >= 4.5) return best
+  return lightBackground ? '#1b1b1b' : '#ffffff'
 }
 
 function hasContrast(color: string, background: string): boolean {

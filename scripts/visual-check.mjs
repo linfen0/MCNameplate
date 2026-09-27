@@ -100,13 +100,13 @@ function makeBlockTexture() {
       const i = (y * 16 + x) * 4
       const n = (x * 7 + y * 13) % 10
       const corner =
-        x === 0 && y === 0
+        x < 2 && y < 2
           ? [255, 0, 0]
-          : x === 15 && y === 0
+          : x > 13 && y < 2
             ? [0, 255, 0]
-            : x === 0 && y === 15
+            : x < 2 && y > 13
               ? [0, 0, 255]
-              : x === 15 && y === 15
+              : x > 13 && y > 13
                 ? [255, 255, 0]
                 : null
       const base = corner ?? (n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42])
@@ -702,17 +702,21 @@ async function main() {
       const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
       const ctx = canvas.getContext('2d')
       const unit = Math.max(1, Math.round(canvas.height / 256))
-      // 内容区起点 = 外框(3u) + 倒角(1u)；倒角本身是外框高光，不能当成贴图来采样
-      const inset = 4 * unit
+      // 底纹铺满整个面板（外框之内）。九宫格把源贴图的第 0 个纹理像素放在面板第一格，
+      // 所以采样点要取「第一格的中心」，偏一两个像素就落到源图第 1 个像素上了。
+      // 底纹铺满面板（frame 起），但最外 1 格是倒角高光/阴影，会盖住第 0 个纹理像素；
+      // 所以取第 1 格的中心来采样（夹具里四角是 2×2 色块，第 1 格仍是角色）
+      const frame = 3 * unit
+      const sample = frame + unit + Math.floor(unit / 2)
       const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const at = (x, y) => {
         const i = (y * canvas.width + x) * 4
         return [data[i], data[i + 1], data[i + 2]]
       }
-      const x0 = inset + 1
-      const y0 = inset + 1
-      const x1 = canvas.width - inset - 2
-      const y1 = canvas.height - inset - 2
+      const x0 = sample
+      const y0 = sample
+      const x1 = canvas.width - sample - 1
+      const y1 = canvas.height - sample - 1
       return {
         topLeft: at(x0, y0),
         topRight: at(x1, y0),

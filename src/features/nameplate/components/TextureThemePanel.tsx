@@ -202,6 +202,8 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
                   ['暗部 dark', active.palette.dark],
                   ['强调 accent', active.palette.accent],
                   ['平均 average', active.palette.average],
+                  ['文字 fill', resolveTheme(config).text.fill],
+                  ['描边 shadow', resolveTheme(config).text.shadow ?? '—'],
                 ].map(([label, color]) => (
                   <div key={label} className="flex items-center gap-2">
                     <span className="block h-3 w-3 border border-black" style={{ backgroundColor: color }} />
