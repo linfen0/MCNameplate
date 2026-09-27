@@ -7,7 +7,7 @@
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
-import { hexToRgba, mixHex, relativeLuminance, rgbaToHex, shadeHex } from './color'
+import { hexToRgba, relativeLuminance, rgbaToHex, shadeHex } from './color'
 import type { RgbaImage } from './types'
 import type { Palette, PanelTexture } from './textures'
 import type { Theme, ThemeColorSet } from './themes'
@@ -184,13 +184,13 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     dark: darken(palette.base, 0.72),
   }
 
-  // 底纹的三层色要“收窄”：直接用贴图的极端明暗会让噪声变成高对比花斑，
-  // 看起来像平铺的方块。这里只取一部分差值，并再做上限约束，
-  // 效果就与内置的草方块 / 下界岩一致 —— 主色相同，表面只有细微起伏。
+  // 底纹 = 主色 + 由主色派生的轻微明暗，保证是一块“平静的材质表面”。
+  // 不能把提取出的亮部/暗部色卡直接当噪声三色：一张深底 + 金色点缀的机器贴图
+  // 会让底纹变成满地金点。提取出的亮/暗色卡是用在**外框、凹槽、分割线**这些组件上的。
   const surface: Palette = {
     base: palette.base,
-    light: clampDelta(palette.base, mixHex(palette.base, palette.light, 0.34), 0.2),
-    dark: clampDelta(palette.base, mixHex(palette.base, palette.dark, 0.34), 0.24),
+    light: shadeHex(palette.base, 0.1),
+    dark: shadeHex(palette.base, -0.14),
   }
   const texture: PanelTexture = { kind: 'noise', palette: surface }
 
@@ -209,28 +209,6 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     textured: true,
     palette,
   }
-}
-
-/**
- * 把颜色相对基准色的亮度差限制在 maxDelta 以内。
- * 目的是让生成的底纹保持“一块材质表面”的观感，而不是明暗跳变的棋盘。
- */
-function clampDelta(base: string, color: string, maxDelta: number): string {
-  const delta = relativeLuminance(color) - relativeLuminance(base)
-  if (Math.abs(delta) <= maxDelta) return color
-  const target = Math.max(0.02, Math.min(0.98, relativeLuminance(base) + Math.sign(delta) * maxDelta))
-  // 二分把亮度调到目标附近、保持色相：向白混合亮度单调增，向黑混合单调减，方向要分开处理
-  const towardWhite = delta > 0
-  const t = (value: number) => mixHex(base, towardWhite ? '#ffffff' : '#000000', value)
-  let low = 0
-  let high = 1
-  for (let i = 0; i < 16; i++) {
-    const mid = (low + high) / 2
-    const below = relativeLuminance(t(mid)) < target
-    if (below === towardWhite) low = mid
-    else high = mid
-  }
-  return t((low + high) / 2)
 }
 
 function hasContrast(color: string, background: string): boolean {

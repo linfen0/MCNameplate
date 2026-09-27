@@ -81,34 +81,41 @@ describe('buildThemeFromTexture', () => {
     expect(JSON.stringify(theme.texture)).not.toContain('image')
   })
 
-  it('底纹的明暗被收窄：机器类等高对比贴图也不会变成“花斑棋盘”', () => {
-    // 中间调为主 + 少量极亮/极暗（机器类贴图的典型分布）：
-    // 直接用提取出的极端色当噪声三色会糊成棋盘
+  it('底纹只由主色派生：深底 + 金色点缀的机器贴图也不会撒满金点', () => {
+    // 模拟“深色底 + 少量亮金细节”的机器贴图（radial chassis 那类）
     const image = createImage(16, 16)
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
-        const n = (x * 5 + y * 3) % 10
+        const n = (x * 5 + y * 3) % 20
         const color: [number, number, number, number] =
-          n < 6 ? [110, 108, 104, 255] : n < 8 ? [240, 240, 240, 255] : [14, 14, 18, 255]
+          n === 0 ? [250, 200, 60, 255] : n === 1 ? [255, 240, 200, 255] : [26, 24, 22, 255]
         setPixel(image, x, y, color)
       }
     }
+    const extracted = extractPalette(image)
     const theme = buildThemeFromTexture(image)
     expect(theme.texture.kind).toBe('noise')
     if (theme.texture.kind !== 'noise') return
-    const baseLuminance = relativeLuminance(theme.texture.palette.base)
-    const lightDelta = relativeLuminance(theme.texture.palette.light) - baseLuminance
-    const darkDelta = baseLuminance - relativeLuminance(theme.texture.palette.dark)
-    expect(lightDelta).toBeLessThanOrEqual(0.21)
-    expect(darkDelta).toBeLessThanOrEqual(0.25)
-    // 收窄后仍要有起伏，不能压成一个纯色
-    expect(lightDelta).toBeGreaterThan(0.01)
-    expect(darkDelta).toBeGreaterThan(0.01)
+    const surface = theme.texture.palette
+
+    // 底纹三层色必须都贴近主色，且不含被提取出的金色亮部
+    expect(surface.base).toBe(extracted.base)
+    const baseLuminance = relativeLuminance(surface.base)
+    expect(relativeLuminance(surface.light) - baseLuminance).toBeLessThan(0.12)
+    expect(baseLuminance - relativeLuminance(surface.dark)).toBeLessThan(0.16)
+    for (const tone of [surface.base, surface.light, surface.dark]) {
+      // 金色亮部的红绿通道差异很大，底纹里不该出现这种色
+      const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(tone.slice(i, i + 2), 16))
+      expect(r - b).toBeLessThan(40)
+      expect(g).toBeGreaterThanOrEqual(b - 10)
+    }
   })
 
-  it('外框与强调色仍可保留贴图的强对比（只有底纹被收窄）', () => {
+  it('提取出的亮部/暗部色卡用在外框等组件上，并保持足够对比', () => {
     const theme = buildThemeFromTexture(blockTexture())
     expect(relativeLuminance(theme.frame.light)).toBeGreaterThan(relativeLuminance(theme.frame.dark) * 1.5)
+    expect(theme.palette!.light).toBeTruthy()
+    expect(theme.palette!.dark).toBeTruthy()
   })
 
   it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {
