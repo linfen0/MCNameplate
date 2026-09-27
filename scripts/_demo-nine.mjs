@@ -28,7 +28,16 @@ await upload('skin-input', path.join(OUT, 'test-skin-64.png'), 'skin.png')
 await page.fill('[data-testid="id-input"]', 'XIEQING')
 await page.waitForTimeout(500)
 await upload('texture-input', path.join(OUT, 'radial_chassis_top.png'), 'radial_chassis_top')
-await page.waitForTimeout(900)
+await page.waitForTimeout(1200)
+const dbg = await page.evaluate(() => {
+  const text = document.body.innerText
+  return {
+    hasPanel: text.includes('底纹怎么用这张贴图'),
+    hasPalette: text.includes('程序提取的配色'),
+    buttons: [...document.querySelectorAll('button')].map((b) => b.innerText.trim()).filter(Boolean).slice(-14),
+  }
+})
+console.log(JSON.stringify(dbg, null, 1))
 for (const [label, name] of [['nine-slice', 'a-九宫格'], ['stretch', 'b-整张拉伸'], ['tile', 'c-平铺']]) {
   await page.getByRole('button', { name: label === 'nine-slice' ? '九宫格拉伸（推荐）' : label === 'stretch' ? '整张拉伸' : '平铺成方块墙' }).click()
   await page.waitForTimeout(700)
