@@ -1,5 +1,6 @@
 /** 名牌底色主题：少量真正有辨识度的 Minecraft 配色，整体偏暗以保证 ID 可读 */
 
+import type { ExtractedPalette } from './palette'
 import type { Palette, PanelTexture } from './textures'
 
 export interface ThemeColorSet {
@@ -26,6 +27,8 @@ export interface Theme {
   guide: string
   /** 是否纹理底（决定是否需要给文字加压暗） */
   textured: boolean
+  /** 自定义纹理主题下由贴图提取出的配色（内置主题为空） */
+  palette?: ExtractedPalette
 }
 
 const soil: Palette = { base: '#6b4a2a', light: '#7d5a34', dark: '#4f3620' }

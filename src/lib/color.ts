@@ -42,6 +42,20 @@ export function shadeHex(hex: string, amount: number): string {
   return rgbaToHex([r + (target - r) * k, g + (target - g) * k, b + (target - b) * k, 255])
 }
 
+/** 相对亮度（WCAG），用于配色提取与文字对比度判定 */
+export function relativeLuminance(hex: string): number {
+  const [r, g, b] = hexToRgba(hex)
+  const lin = (value: number) => {
+    const c = value / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+export function isLightColor(hex: string): boolean {
+  return relativeLuminance(hex) > 0.45
+}
+
 export function mixHex(a: string, b: string, t: number): string {
   const ca = hexToRgba(a)
   const cb = hexToRgba(b)

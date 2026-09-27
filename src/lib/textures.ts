@@ -31,6 +31,8 @@ export type PanelTexture =
   | { kind: 'solid'; color: string }
   /** 颗粒石/土底；带 grassTop 时顶部生成一条起伏草皮 */
   | { kind: 'noise'; palette: Palette; grassTop?: Palette }
+  /** 用户上传的方块贴图（MC 原版或 Mod 都行）；texelScale = 每个纹理像素占几格 */
+  | { kind: 'custom'; image: RgbaImage; texelScale: number }
 
 /** 面板贴图的像素粒度：每个纹理像素占 unit 个画布像素 */
 const MIN_TEXELS = 8
@@ -55,6 +57,10 @@ export function renderPanelTexture(
 
   if (texture.kind === 'solid') {
     return createImage(w, h, hexToRgba(texture.color))
+  }
+
+  if (texture.kind === 'custom') {
+    return tileCustomTexture(texture, w, h)
   }
 
   const image = createImage(w, h)
@@ -108,6 +114,38 @@ export function renderPanelTexture(
   return image
 }
 
+/** 把用户贴图平铺成整块面板底纹（每个纹理像素占 texelScale 格） */
+function tileCustomTexture(
+  texture: Extract<PanelTexture, { kind: 'custom' }>,
+  w: number,
+  h: number,
+): RgbaImage {
+  const source = texture.image
+  const scale = Math.max(1, Math.round(texture.texelScale))
+  const out = createImage(w, h)
+  for (let y = 0; y < h; y++) {
+    const sy = Math.floor(y / scale) % source.height
+    // 与内置主题一致的轻微纵深压暗，避免整块底太平
+    const depth = 1 - 0.12 * (y / Math.max(1, h - 1))
+    for (let x = 0; x < w; x++) {
+      const sx = Math.floor(x / scale) % source.width
+      const i = (sy * source.width + sx) * 4
+      const a = source.data[i + 3] / 255
+      if (a === 0) {
+        setPixel(out, x, y, [24, 26, 30, 255])
+        continue
+      }
+      setPixel(out, x, y, [
+        source.data[i] * depth,
+        source.data[i + 1] * depth,
+        source.data[i + 2] * depth,
+        255,
+      ])
+    }
+  }
+  return out
+}
+
 const cache = new Map<string, RgbaImage>()
 
 /** 带缓存：连续重绘时不必重复生成整块底纹 */
@@ -117,7 +155,11 @@ export function getPanelTexture(
   height: number,
   seed: number,
 ): RgbaImage {
-  const key = `${JSON.stringify(texture)}|${width}x${height}|${seed}`
+  // 自定义贴图带 ImageData，不能进 JSON key，用引用计数缓存
+  const key =
+    texture.kind === 'custom'
+      ? `custom|${texture.image.width}x${texture.image.height}|${texture.texelScale}|${width}x${height}`
+      : `${JSON.stringify(texture)}|${width}x${height}|${seed}`
   const hit = cache.get(key)
   if (hit) return hit
   const value = renderPanelTexture(texture, width, height, seed)
