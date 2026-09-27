@@ -146,8 +146,20 @@ export function GuidePage() {
               <li>· 外框、肖像位凹槽：由主色推导出各自的明暗三层</li>
             </ul>
             <Line>
-              提取结果会直接列出来（配色条 + 色值），还能用「纹理缩放」控制一个纹理像素占几格。
-              贴图为透明处会填成深色，不会出现黑洞。
+              <b className="text-ink-100">底纹怎么用这张贴图</b>（默认第一种）：
+            </Line>
+            <ul className="space-y-1 font-sans text-xs text-ink-300">
+              <li>
+                · <b className="text-ink-100">九宫格</b>：学 MC 基岩版 GUI 贴图的 nineslice ——
+                四角原样、四条边只沿一个方向拉伸、只有中间被拉开，<b className="text-ink-100">边框不会变形</b>
+              </li>
+              <li>· 整张拉伸：无边框的纯材质用这个</li>
+              <li>· 平铺成方块墙：想要"一堵墙"的观感</li>
+              <li>· 只取配色：用主色派生一块平静的程序化表面</li>
+            </ul>
+            <Line>
+              提取出的亮部/暗部色卡是用在<b className="text-ink-100">外框、肖像位凹槽、分割线</b>这些组件上的，
+              不会撒进底纹；文字色按对比度自动选。贴图为透明处会填成深色，不会出现黑洞。
             </Line>
           </div>
         </div>
