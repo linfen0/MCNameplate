@@ -913,7 +913,7 @@ async function main() {
     check(
       goldStyle.route === 'halo' && /^#[0-9a-f]{6}$/.test(goldStyle.outline),
       '浅色花底改用「亮字 + 同族描边」，而不是把 ID 压黑',
-      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline || '无'} · ${JSON.stringify(goldMeasured)}`,
+      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline || '无'} · 对比度 ${goldStyle.contrast}`,
     )
     check(
       goldStyle.contrast >= 4.5,
