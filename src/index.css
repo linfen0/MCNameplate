@@ -1,0 +1,305 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   自托管像素字体（SIL OFL 1.1，见 public/fonts/OFL-*.txt）
+   Silkscreen —— 5×5 点阵，最接近 Minecraft 界面字体的观感
+   Press Start 2P —— 经典 8 位街机风格备选
+------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('/fonts/silkscreen-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('/fonts/silkscreen-bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('/fonts/press-start-2p.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@theme {
+  --font-pixel: 'Silkscreen', 'Press Start 2P', ui-monospace, monospace;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  --color-ink-900: #0d0f14;
+  --color-ink-800: #14161c;
+  --color-ink-700: #1c1f27;
+  --color-ink-600: #262a34;
+  --color-ink-500: #343a46;
+  --color-ink-400: #4a5160;
+  --color-ink-300: #6b7383;
+  --color-ink-200: #9aa2b1;
+  --color-ink-100: #d7dce5;
+  --color-grass-500: #6aa84f;
+  --color-grass-400: #8bc34a;
+  --color-grass-600: #4e8a22;
+  --color-gold-400: #f2c14e;
+  --color-gold-500: #d9a227;
+  --color-diamond-400: #6fe3e1;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink-800);
+  background-image:
+    linear-gradient(45deg, rgb(255 255 255 / 1.5%) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 1.5%) 75%),
+    linear-gradient(45deg, rgb(255 255 255 / 1.5%) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 1.5%) 75%);
+  background-size: 24px 24px;
+  background-position:
+    0 0,
+    12px 12px;
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 像素图形一律禁止平滑 */
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ---------------- Minecraft 风格像素控件 ---------------- */
+.mc-panel {
+  position: relative;
+  background-color: var(--color-ink-700);
+  border: 3px solid #000;
+  box-shadow:
+    inset -3px -3px 0 0 #0f1116,
+    inset 3px 3px 0 0 #3d4453;
+}
+
+.mc-panel-flat {
+  background-color: var(--color-ink-700);
+  border: 3px solid #000;
+  box-shadow:
+    inset -3px -3px 0 0 #12141a,
+    inset 3px 3px 0 0 #333a48;
+}
+
+.mc-btn {
+  font-family: var(--font-pixel);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  padding: 0.55em 0.9em;
+  font-size: 14px;
+  line-height: 1;
+  color: #f2f5eb;
+  background-color: #5d6470;
+  border: 3px solid #000;
+  box-shadow:
+    inset -3px -3px 0 0 #2c313a,
+    inset 3px 3px 0 0 #8d95a3;
+  cursor: pointer;
+  user-select: none;
+  transition: none;
+  text-shadow: 2px 2px 0 rgb(0 0 0 / 55%);
+}
+.mc-btn:hover:not(:disabled) {
+  background-color: #6f7a5a;
+  box-shadow:
+    inset -3px -3px 0 0 #3a4128,
+    inset 3px 3px 0 0 #a8b088;
+}
+.mc-btn:active:not(:disabled) {
+  box-shadow:
+    inset 3px 3px 0 0 #2c313a,
+    inset -3px -3px 0 0 #8d95a3;
+  transform: translateY(1px);
+}
+.mc-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mc-btn-primary {
+  background-color: #5b8f34;
+  box-shadow:
+    inset -3px -3px 0 0 #2f4d19,
+    inset 3px 3px 0 0 #8dc45c;
+}
+.mc-btn-primary:hover:not(:disabled) {
+  background-color: #6ba53d;
+}
+.mc-btn-ghost {
+  background-color: #2b303a;
+  box-shadow:
+    inset -3px -3px 0 0 #171a20,
+    inset 3px 3px 0 0 #454d5c;
+}
+
+.mc-input {
+  font-family: var(--font-pixel);
+  font-size: 16px;
+  width: 100%;
+  padding: 0.6em 0.7em;
+  color: #eef1e6;
+  background-color: #0e1015;
+  border: 3px solid #000;
+  box-shadow:
+    inset 3px 3px 0 0 #232833,
+    inset -3px -3px 0 0 #2f3542;
+  outline: none;
+}
+.mc-input::placeholder {
+  color: #5a6273;
+}
+.mc-input:focus {
+  box-shadow:
+    inset 3px 3px 0 0 #26303a,
+    inset -3px -3px 0 0 #3a4a3a,
+    0 0 0 3px rgb(139 195 74 / 25%);
+}
+
+.mc-chip {
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0.55em 0.7em;
+  color: #cfd6e2;
+  background-color: #232833;
+  border: 3px solid #000;
+  box-shadow:
+    inset -2px -2px 0 0 #14171d,
+    inset 2px 2px 0 0 #3b4250;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mc-chip[data-active='true'] {
+  color: #10240a;
+  background-color: var(--color-grass-400);
+  box-shadow:
+    inset -2px -2px 0 0 #4e8a22,
+    inset 2px 2px 0 0 #c5e79a;
+}
+
+input[type='range'].mc-range {
+  width: 100%;
+  height: 20px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range'].mc-range::-webkit-slider-runnable-track {
+  height: 8px;
+  background: #0e1015;
+  border: 2px solid #000;
+}
+input[type='range'].mc-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 20px;
+  margin-top: -8px;
+  background: #8bc34a;
+  border: 2px solid #000;
+  box-shadow: inset -2px -2px 0 0 #4e8a22;
+}
+input[type='range'].mc-range::-moz-range-track {
+  height: 8px;
+  background: #0e1015;
+  border: 2px solid #000;
+}
+input[type='range'].mc-range::-moz-range-thumb {
+  width: 14px;
+  height: 18px;
+  border-radius: 0;
+  background: #8bc34a;
+  border: 2px solid #000;
+}
+
+.mc-label {
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-200);
+}
+
+.mc-title {
+  font-family: var(--font-pixel);
+  text-shadow: 3px 3px 0 rgb(0 0 0 / 60%);
+}
+
+.mc-scroll {
+  scrollbar-color: #4a5160 #14161c;
+  scrollbar-width: thin;
+}
+.mc-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+.mc-scroll::-webkit-scrollbar-track {
+  background: #14161c;
+}
+.mc-scroll::-webkit-scrollbar-thumb {
+  background: #4a5160;
+  border: 2px solid #000;
+}
+
+.checker-bg {
+  background-color: #0b0c10;
+  background-image:
+    linear-gradient(45deg, #171a21 25%, transparent 25%, transparent 75%, #171a21 75%),
+    linear-gradient(45deg, #171a21 25%, transparent 25%, transparent 75%, #171a21 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    8px 8px;
+}
+
+@keyframes mc-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.mc-blink {
+  animation: mc-blink 1.2s steps(2, end) infinite;
+}
+
+/* 像素开关 */
+.mc-toggle {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 44px;
+  height: 20px;
+  background-color: #0e1015;
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 0 #232833;
+}
+.mc-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 12px;
+  background-color: #4a5160;
+}
+.mc-toggle[data-on='true'] {
+  background-color: #2f4d19;
+}
+.mc-toggle[data-on='true']::after {
+  left: 20px;
+  background-color: #8bc34a;
+}

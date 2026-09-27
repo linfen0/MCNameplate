@@ -1,0 +1,509 @@
+#!/usr/bin/env node
+/**
+ * 端到端视觉验证（开发工具，不参与打包）。
+ *
+ * 1. 生成一张 64×64 测试皮肤 PNG —— 只是自动化测试夹具，应用本身没有皮肤生成功能
+ * 2. 启动 vite preview 托管 dist/
+ * 3. Chromium 打开页面，上传皮肤、填写 ID
+ * 4. 直接从画布像素里独立测量：尺寸、黄金分割位置、头像落点、3D/2D 路径、硬边、朝向
+ * 5. 产出截图与导出 PNG 到 verification/
+ *
+ * 用法：node scripts/visual-check.mjs
+ */
+
+import { spawn } from 'node:child_process'
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { PNG } from 'pngjs'
+import { chromium } from 'playwright-core'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const OUT_DIR = path.join(ROOT, 'verification')
+const PORT = Number(process.env.VERIFY_PORT ?? 4319)
+const BASE_URL = `http://127.0.0.1:${PORT}/`
+const CHROME_PATH =
+  process.env.CHROME_PATH ?? '/data/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'
+
+const GOLDEN_MINOR = 1 - 1 / ((1 + Math.sqrt(5)) / 2)
+const FACE_COLOR = [255, 0, 255, 255]
+const HAIR_COLOR = [0, 0, 128, 255]
+const MARK_LEFT = [255, 255, 0, 255]
+const MARK_RIGHT = [0, 255, 0, 255]
+
+const failures = []
+const notes = []
+
+function check(condition, label, detail = '') {
+  notes.push(`  ${condition ? '✓' : '✗'} ${label}${detail ? ` — ${detail}` : ''}`)
+  if (!condition) failures.push(`${label}${detail ? ` — ${detail}` : ''}`)
+}
+
+/* ------------------------------------------------------------------ */
+/* 1. 测试皮肤夹具                                                      */
+/* ------------------------------------------------------------------ */
+
+function makeTestSkin() {
+  const png = new PNG({ width: 64, height: 64 })
+  png.data.fill(0)
+
+  const put = (x, y, color) => {
+    if (x < 0 || y < 0 || x >= 64 || y >= 64) return
+    const i = (y * 64 + x) * 4
+    png.data[i] = color[0]
+    png.data[i + 1] = color[1]
+    png.data[i + 2] = color[2]
+    png.data[i + 3] = color[3]
+  }
+  const fill = ([rx, ry, rw, rh], color) => {
+    for (let y = ry; y < ry + rh; y++) for (let x = rx; x < rx + rw; x++) put(x, y, color)
+  }
+
+  // 六面：脸品红、头发深蓝，便于按颜色定位与分辨朝向
+  fill([8, 8, 8, 8], FACE_COLOR)
+  fill([0, 8, 8, 8], FACE_COLOR)
+  fill([16, 8, 8, 8], FACE_COLOR)
+  fill([24, 8, 8, 8], HAIR_COLOR)
+  fill([8, 0, 8, 8], HAIR_COLOR)
+  fill([16, 0, 8, 8], [40, 40, 40, 255])
+  put(9, 11, [255, 255, 255, 255])
+  put(10, 11, [0, 0, 0, 255])
+  put(13, 11, [0, 0, 0, 255])
+  put(14, 11, [255, 255, 255, 255])
+  // 正脸左右标记：验证 3D 贴图没有左右镜像
+  put(8, 12, MARK_LEFT)
+  put(15, 12, MARK_RIGHT)
+  // 第二层（帽子）
+  fill([40, 8, 8, 2], HAIR_COLOR)
+  fill([48, 8, 1, 4], HAIR_COLOR)
+  fill([0, 8, 8, 2], HAIR_COLOR)
+  fill([16, 8, 8, 2], HAIR_COLOR)
+  // 经典模型采样区
+  fill([52, 20, 4, 12], HAIR_COLOR)
+  // 身体
+  fill([16, 20, 32, 12], [40, 120, 40, 255])
+  fill([40, 16, 16, 16], [40, 120, 40, 255])
+  fill([32, 48, 16, 16], [40, 120, 40, 255])
+  fill([0, 16, 16, 16], [50, 50, 120, 255])
+  fill([16, 48, 16, 16], [50, 50, 120, 255])
+
+  return PNG.sync.write(png)
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. 浏览器内像素分析                                                  */
+/* ------------------------------------------------------------------ */
+
+function analyseCanvas(options = {}) {
+  const dividerMinRun = options.dividerMinRun ?? 0.98
+  const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+  if (!canvas) return { error: 'canvas not found' }
+  const width = canvas.width
+  const height = canvas.height
+  const mode = canvas.dataset.renderMode ?? 'unknown'
+  const { data } = canvas.getContext('2d').getImageData(0, 0, width, height)
+  const at = (x, y) => {
+    const i = (y * width + x) * 4
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]]
+  }
+
+  const unit = Math.max(1, Math.round(height / 256))
+  const inset = 4 * unit
+  const innerX = inset
+  const innerW = width - inset * 2
+  const innerH = height - inset * 2
+
+  // 分割线：在切分位置附近的窄带里找“几乎整列连续变暗”的那一段
+  // 整个内容区都扫：肖像位内凹面比内容区矮一截，会被“几乎贯穿”的条件排除
+  const bandStart = innerX + 1
+  const bandEnd = innerX + innerW - 2
+  const scores = []
+  let best = 0
+  for (let x = bandStart; x <= bandEnd; x++) {
+    let run = 0
+    let longest = 0
+    for (let y = inset; y < height - inset; y++) {
+      const [r, g, b] = at(x, y)
+      run = r < 40 && g < 40 && b < 40 ? run + 1 : 0
+      if (run > longest) longest = run
+    }
+    scores.push(longest)
+    if (longest > best) best = longest
+  }
+  const hits = []
+  for (let i = 0; i < scores.length; i++) {
+    // 分割线贯穿整个内容区高度；肖像位/纹理阴影都比它矮，用几条像素的容差排除
+    if (best >= innerH * dividerMinRun && scores[i] >= best - 4) hits.push(bandStart + i)
+  }
+  const dividerEdge = hits.length > 0 ? hits[0] : -1
+  const boundary = dividerEdge >= 0 ? dividerEdge + unit : -1
+
+  const counts = { face: 0, hair: 0, text: 0, markLeft: 0, markRight: 0 }
+  // 头像整体轮廓 = 脸（品红）+ 头发（深蓝，含头顶面），这才是 3D 轮廓
+  const head = { minX: width, maxX: -1, minY: height, maxY: -1 }
+  const face = { minX: width, maxX: -1, minY: height, maxY: -1 }
+  const markLeft = { minX: width, maxX: -1 }
+  const markRight = { minX: width, maxX: -1 }
+  const text = { minX: width, maxX: -1, minY: height, maxY: -1 }
+  let faceLeft = 0
+  let faceRight = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = at(x, y)
+      // 注意：3D 渲染会按面亮度衰减（正面 ×0.8、侧面 ×0.6），所以阈值不能按纯色写
+      if (r > 170 && b > 170 && g < 40) {
+        counts.face++
+        if (x < width / 2) faceLeft++
+        else faceRight++
+        if (x < face.minX) face.minX = x
+        if (x > face.maxX) face.maxX = x
+        if (y < face.minY) face.minY = y
+        if (y > face.maxY) face.maxY = y
+        if (x < head.minX) head.minX = x
+        if (x > head.maxX) head.maxX = x
+        if (y < head.minY) head.minY = y
+        if (y > head.maxY) head.maxY = y
+      } else if (b > 55 && b < 175 && r < 25 && g < 25) {
+        counts.hair++
+        if (x < head.minX) head.minX = x
+        if (x > head.maxX) head.maxX = x
+        if (y < head.minY) head.minY = y
+        if (y > head.maxY) head.maxY = y
+      } else if (r > 170 && g > 170 && b < 40) {
+        counts.markLeft++
+        if (x < markLeft.minX) markLeft.minX = x
+        if (x > markLeft.maxX) markLeft.maxX = x
+      } else if (r < 40 && g > 170 && b < 40) {
+        counts.markRight++
+        if (x < markRight.minX) markRight.minX = x
+        if (x > markRight.maxX) markRight.maxX = x
+      } else if (r > 225 && g > 225 && b > 225 && boundary > 0 && x > boundary) {
+        counts.text++
+        if (x < text.minX) text.minX = x
+        if (x > text.maxX) text.maxX = x
+        if (y < text.minY) text.minY = y
+        if (y > text.maxY) text.maxY = y
+      }
+    }
+  }
+
+  // 文字块内不应出现“中间灰”：回退到系统字体后必然产生抗锯齿灰边
+  let midGray = 0
+  if (text.maxX >= text.minX) {
+    for (let y = text.minY; y <= text.maxY; y++) {
+      for (let x = text.minX; x <= text.maxX; x++) {
+        const [r, g, b] = at(x, y)
+        if (r > 95 && r < 205 && g > 95 && g < 205 && b > 95 && b < 205) midGray++
+      }
+    }
+  }
+
+  return {
+    width,
+    height,
+    mode,
+    midGray,
+    unit,
+    innerX,
+    innerW,
+    innerH,
+    boundary,
+    dividerHits: hits.length,
+    dividerRun: best,
+    counts,
+    face,
+    head,
+    textBox: text,
+    faceLeft,
+    faceRight,
+    markLeftX: markLeft.maxX >= 0 ? (markLeft.minX + markLeft.maxX) / 2 : -1,
+    markRightX: markRight.maxX >= 0 ? (markRight.minX + markRight.maxX) / 2 : -1,
+  }
+}
+
+/** 平面模式硬边检测：头像左边缘必须是「肖像位底色 → 品红」的直接跳变 */
+function analyseHardEdges() {
+  const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+  const width = canvas.width
+  const height = canvas.height
+  const { data } = canvas.getContext('2d').getImageData(0, 0, width, height)
+  const at = (x, y) => {
+    const i = (y * width + x) * 4
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]]
+  }
+  const isFace = ([r, g, b]) => r > 170 && b > 170 && g < 40
+
+  let minX = width
+  let maxX = -1
+  let minY = height
+  let maxY = -1
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!isFace(at(x, y))) continue
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+  }
+  const midY = Math.round((minY + maxY) / 2)
+  const row = []
+  for (let x = Math.max(0, minX - 8); x < minX; x++) row.push(at(x, midY))
+  const blends = row.filter(([r, g, b]) => {
+    const faceish = r > 160 && b > 160
+    const slotish = r < 70 && g < 70 && b < 80
+    return !faceish && !slotish
+  })
+  return { minX, maxX, minY, maxY, midY, blendCount: blends.length }
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. 页面操作辅助                                                      */
+/* ------------------------------------------------------------------ */
+
+async function uploadSkin(page, skinBuffer, name = 'test-skin-64.png') {
+  await page.evaluate(
+    ({ base64, fileName }) => {
+      const input = document.querySelector('[data-testid="skin-input"]')
+      if (!input) throw new Error('skin input not found')
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const file = new File([bytes], fileName, { type: 'image/png' })
+      const transfer = new DataTransfer()
+      transfer.items.add(file)
+      input.files = transfer.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    },
+    { base64: skinBuffer.toString('base64'), fileName: name },
+  )
+}
+
+async function exportCanvas(page, file) {
+  const dataUrl = await page.evaluate(() =>
+    document.querySelector('[data-testid="nameplate-canvas"]').toDataURL('image/png'),
+  )
+  await writeFile(path.join(OUT_DIR, file), Buffer.from(dataUrl.split(',')[1], 'base64'))
+}
+
+async function waitForRenderMode(page, mode, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const current = await page.evaluate(
+      () => document.querySelector('[data-testid="nameplate-canvas"]')?.dataset.renderMode,
+    )
+    if (current === mode) return true
+    await page.waitForTimeout(120)
+  }
+  return false
+}
+
+async function waitForServer(url, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url)
+      if (response.ok) return true
+    } catch {
+      /* 还没起来 */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return false
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. 主流程                                                            */
+/* ------------------------------------------------------------------ */
+
+async function main() {
+  await mkdir(OUT_DIR, { recursive: true })
+  const skinBuffer = makeTestSkin()
+  await writeFile(path.join(OUT_DIR, 'test-skin-64.png'), skinBuffer)
+
+  const server = spawn(
+    path.join(ROOT, 'node_modules/.bin/vite'),
+    ['preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: ROOT, stdio: 'ignore' },
+  )
+
+  let browser
+  try {
+    if (!(await waitForServer(BASE_URL))) throw new Error(`preview 服务未能在 ${BASE_URL} 启动`)
+
+    browser = await chromium.launch({
+      executablePath: CHROME_PATH,
+      args: [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--use-gl=swiftshader',
+        '--enable-unsafe-swiftshader',
+      ],
+    })
+    const page = await browser.newPage({ viewport: { width: 1500, height: 1200 } })
+    const pageErrors = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    await page.goto(BASE_URL, { waitUntil: 'networkidle' })
+    await page.evaluate(() => document.fonts.ready)
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(OUT_DIR, 'studio-empty.png'), fullPage: true })
+
+    // ---- 上传皮肤 + 填写 ID（默认：自适应宽高比 + three.js 3D）----
+    await uploadSkin(page, skinBuffer)
+    await page.fill('[data-testid="id-input"]', 'Notch_2024')
+    const got3d = await waitForRenderMode(page, '3d')
+    check(got3d, '头像走的是 three.js 3D 渲染路径')
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: path.join(OUT_DIR, 'studio-3d.png'), fullPage: true })
+
+    const iso = await page.evaluate(analyseCanvas)
+    check(iso.mode === '3d', '画布标记为 3d 渲染', `mode=${iso.mode}`)
+    check(iso.width > iso.height, '画布是横版矩形', `${iso.width}×${iso.height}`)
+    const aspect = iso.width / iso.height
+    check(aspect > 2.2 && aspect < 7.2, '自适应宽高比落在合理区间', `${aspect.toFixed(2)} : 1`)
+    check(iso.counts.face > 20000, '3D 头像已绘制（正面 + 侧面）', `${iso.counts.face} px`)
+    check(iso.counts.hair > 5000, '3D 头顶面已绘制', `${iso.counts.hair} px`)
+    check(iso.faceRight < 100, '头像全部落在左侧', `右侧 ${iso.faceRight} px`)
+    check(iso.counts.text > 3000, '右侧存在 ID 文字像素', `${iso.counts.text} px`)
+
+    // 默认「贴合头像」：头像块宽度 = 内容区高度
+    const expectedTight = iso.innerX + Math.min(iso.innerH, Math.floor(iso.innerW / 2))
+    check(
+      iso.boundary > 0 && Math.abs(iso.boundary - expectedTight) <= 2,
+      '默认「贴合头像」：头像块宽度 = 内容区高度',
+      `实测 ${iso.boundary} / 期望 ${expectedTight}（命中列 ${iso.dividerHits}）`,
+    )
+
+    // 字号：这是这轮的重点 —— ID 字高应达到铭牌高度的 1/φ² ≈ 38%
+    const textHeight = iso.textBox.maxY - iso.textBox.minY + 1
+    const textWidth = iso.textBox.maxX - iso.textBox.minX + 1
+    const nameBlockWidth = iso.innerW - (iso.boundary - iso.innerX)
+    check(
+      textHeight / iso.height > 0.32,
+      'ID 字高达到铭牌高度的 30% 以上（不再空旷）',
+      `${textHeight} / ${iso.height} = ${(textHeight / iso.height).toFixed(3)}`,
+    )
+    const textArea = (iso.textBox.maxX - iso.textBox.minX + 1) * (iso.textBox.maxY - iso.textBox.minY + 1)
+    check(
+      iso.midGray / textArea < 0.01,
+      'ID 区域内没有抗锯齿灰边（确认没用回退系统字体）',
+      `中间灰 ${iso.midGray} / ${textArea} = ${((iso.midGray / textArea) * 100).toFixed(2)}%`,
+    )
+    check(
+      textWidth / nameBlockWidth > 0.75,
+      'ID 横向填满名字区（利用率 > 80%）',
+      `${textWidth} / ${nameBlockWidth} = ${(textWidth / nameBlockWidth).toFixed(3)}`,
+    )
+
+    const headHeight = iso.head.maxY - iso.head.minY + 1
+    check(headHeight / iso.height > 0.7, '头像高度超过铭牌高度的 70%', `${headHeight} / ${iso.height}`)
+    const headAspect = (iso.head.maxX - iso.head.minX + 1) / headHeight
+    check(
+      headAspect > 0.85 && headAspect < 1.3,
+      '3D 轮廓宽高比符合投影几何',
+      headAspect.toFixed(3),
+    )
+    check(
+      iso.markLeftX > 0 && iso.markRightX > 0 && iso.markLeftX < iso.markRightX,
+      '正脸贴图没有左右镜像（左标记在右标记左侧）',
+      `左标记 x=${iso.markLeftX}，右标记 x=${iso.markRightX}`,
+    )
+    await exportCanvas(page, 'nameplate-3d-default.png')
+
+    // ---- 切到严格黄金分割，复核像素级比例 ----
+    await page.getByRole('button', { name: '黄金分割 38.2 : 61.8' }).click()
+    await page.waitForTimeout(600)
+    const golden = await page.evaluate(analyseCanvas)
+    const expectedGolden = golden.innerX + Math.floor(golden.innerW * GOLDEN_MINOR)
+    check(
+      golden.boundary > 0 && Math.abs(golden.boundary - expectedGolden) <= 2,
+      '黄金分割预设：交界线在内容区宽度的 38.1966% 处',
+      `实测 ${golden.boundary} / 期望 ${expectedGolden}`,
+    )
+    const goldenRatio = (golden.boundary - golden.innerX) / golden.innerW
+    check(
+      Math.abs(goldenRatio - GOLDEN_MINOR) < 0.003,
+      '像素级实测比例 ≈ 0.381966',
+      goldenRatio.toFixed(6),
+    )
+    await exportCanvas(page, 'nameplate-golden-split.png')
+
+    // 回到默认贴合模式
+    await page.getByRole('button', { name: '贴合头像' }).click()
+    await page.waitForTimeout(500)
+
+    // ---- 2D 正面：验证像素硬边 ----
+    await page.getByRole('button', { name: '2D 正面' }).click()
+    await waitForRenderMode(page, '2d')
+    await page.waitForTimeout(200)
+    const flat = await page.evaluate(analyseHardEdges)
+    const headWidth = flat.maxX - flat.minX + 1
+    const magentaHeight = flat.maxY - flat.minY + 1
+    check(flat.blendCount === 0, '2D 头像边缘无半透明过渡（整数倍最近邻）', `过渡 ${flat.blendCount} px`)
+    check(headWidth > 0 && headWidth % 8 === 0, '2D 头像宽度是 8 皮肤像素整数倍', `${headWidth}px`)
+    check(
+      magentaHeight % 6 === 0 && (magentaHeight / 6) * 8 === headWidth,
+      '2D 头像整体为正方形（上 2/8 是头发层）',
+      `脸 ${headWidth}×${magentaHeight}`,
+    )
+    await exportCanvas(page, 'nameplate-2d.png')
+
+    // ---- 回到 3D，固定 2:1，再放大到 1024 高 ----
+    await page.getByRole('button', { name: '3D 立体' }).click()
+    await page.getByRole('button', { name: '2 : 1' }).click()
+    await page.waitForTimeout(500)
+    const fixed = await page.evaluate(analyseCanvas)
+    check(fixed.width === fixed.height * 2, '固定 2:1 时宽度正好是高度两倍', `${fixed.width}×${fixed.height}`)
+    const fixedTight = fixed.innerX + Math.min(fixed.innerH, Math.floor(fixed.innerW / 2))
+    check(
+      Math.abs(fixed.boundary - fixedTight) <= 2,
+      '换宽高比后头像块仍贴合内容区高度',
+      `实测 ${fixed.boundary} / 期望 ${fixedTight}`,
+    )
+    await page.getByRole('button', { name: '1024px' }).click()
+    await page.waitForTimeout(700)
+    const big = await page.evaluate(analyseCanvas)
+    check(big.width === 2048 && big.height === 1024, '高 1024 + 2:1 → 2048×1024', `${big.width}×${big.height}`)
+    check(big.mode === '3d', '高分辨率下依然走 3D 渲染', `mode=${big.mode}`)
+    await exportCanvas(page, 'nameplate-3d-2048x1024.png')
+
+    // ---- 主题留档 ----
+    await page.getByRole('button', { name: /提示框/ }).click()
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: path.join(OUT_DIR, 'studio-tooltip.png'), fullPage: true })
+    await exportCanvas(page, 'nameplate-tooltip.png')
+
+    await page.getByRole('button', { name: /草方块/ }).click()
+    await page.waitForTimeout(500)
+    await exportCanvas(page, 'nameplate-grass.png')
+
+    await page.getByRole('button', { name: /石头/ }).click()
+    await page.waitForTimeout(500)
+    await exportCanvas(page, 'nameplate-stone.png')
+
+    // ---- 说明页 ----
+    await page.goto(`${BASE_URL}guide`, { waitUntil: 'networkidle' })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(OUT_DIR, 'guide.png'), fullPage: true })
+
+    check(pageErrors.length === 0, '页面全程无未捕获异常', pageErrors.join(' | '))
+  } finally {
+    if (browser) await browser.close()
+    server.kill('SIGTERM')
+  }
+
+  console.log('\n视觉验证结果：')
+  console.log(notes.join('\n'))
+  if (failures.length > 0) {
+    console.error(`\n❌ ${failures.length} 项未通过：`)
+    for (const item of failures) console.error(`  - ${item}`)
+    process.exitCode = 1
+  } else {
+    console.log('\n✅ 全部通过')
+  }
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

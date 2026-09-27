@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.tooling/
+npm-cache/
+
+# 视觉验证产物（由 npm run verify:visual 重新生成）
+verification/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,92 @@
+import { ChipRow, Field, PixelChip, PixelToggle } from '../../../components/pixel'
+import { cx } from '../../../lib/cx'
+import { PIXEL_FONTS } from '../../../lib/pixelFont'
+import { THEMES } from '../../../lib/themes'
+import type { NameplateConfig } from '../config'
+
+export interface AppearanceControlsProps {
+  config: NameplateConfig
+  patch: (changes: Partial<NameplateConfig>) => void
+}
+
+/** 底色主题、ID 字体与文字样式开关 */
+export function AppearanceControls({ config, patch }: AppearanceControlsProps) {
+  return (
+    <div className="space-y-5">
+      <Field label="底色主题" hint="每个主题的方块贴图都是程序化生成的，无任何外部素材。">
+        <ChipRow>
+          {THEMES.map((theme) => (
+            <PixelChip
+              key={theme.id}
+              active={config.themeId === theme.id}
+              onClick={() => patch({ themeId: theme.id })}
+              title={theme.description}
+            >
+              <span className="flex items-center gap-2">
+                <span className="flex">
+                  {theme.swatch.map((color) => (
+                    <span
+                      key={color}
+                      className="block h-3 w-3 border border-black"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </span>
+                {theme.name}
+              </span>
+            </PixelChip>
+          ))}
+        </ChipRow>
+      </Field>
+
+      <Field label="ID 字体" hint="两种字体都是 SIL OFL 开源许可，已随项目本地托管。">
+        <ChipRow>
+          {PIXEL_FONTS.map((font) => (
+            <PixelChip
+              key={font.id}
+              active={config.fontId === font.id}
+              onClick={() => patch({ fontId: font.id })}
+              title={font.description}
+              style={{ fontFamily: `${font.cssFamily}, monospace` }}
+            >
+              {font.name}
+            </PixelChip>
+          ))}
+        </ChipRow>
+      </Field>
+
+      <Field label="样式开关">
+        <div className={cx('grid gap-3', 'sm:grid-cols-2')}>
+          <PixelToggle
+            label="ID 全大写"
+            checked={config.uppercase}
+            onChange={(checked) => patch({ uppercase: checked })}
+          />
+          <PixelToggle
+            label="文字阴影"
+            hint="Minecraft 原版 1 像素投影"
+            checked={config.shadow}
+            onChange={(checked) => patch({ shadow: checked })}
+          />
+          <PixelToggle
+            label="黄金分割分割线"
+            checked={config.showDivider}
+            onChange={(checked) => patch({ showDivider: checked })}
+          />
+          <PixelToggle
+            label="文字区压暗"
+            hint="纹理底色上更易读"
+            checked={config.textBackdrop}
+            onChange={(checked) => patch({ textBackdrop: checked })}
+          />
+          <PixelToggle
+            label="黄金辅助线"
+            hint="仅用于校核比例，导出前建议关闭"
+            checked={config.showGuides}
+            onChange={(checked) => patch({ showGuides: checked })}
+          />
+        </div>
+      </Field>
+    </div>
+  )
+}
