@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from './raster'
-import { relativeLuminance, rgbaToHex } from './color'
+import { contrastRatio, hexToHsl, hexToRgba, relativeLuminance, rgbaToHex } from './color'
 import {
   buildTextCandidates,
   buildThemeFromTexture,
   chooseTextColor,
   extractPalette,
+  NEUTRAL_MAX_CHROMA,
   paletteToCssGradient,
 } from './palette'
 import type { RgbaImage } from './types'
@@ -259,6 +260,47 @@ describe('文字色优先级：先提亮文字，最后才动底', () => {
   it('候选里不会有重复色', () => {
     const list = buildTextCandidates(['#ffffff', '#ffffff'], false)
     expect(new Set(list.map((item) => item.color)).size).toBe(list.length)
+  })
+})
+
+describe('和谐取色：不靠纯白 / 纯黑解决对比度', () => {
+  it('候选色里不会凭空出现纯白或纯黑', () => {
+    for (const lightBackground of [true, false]) {
+      const colors = buildTextCandidates(['#d9a227', '#5c2b29'], lightBackground).map((c) => c.color)
+      expect(colors).not.toContain('#ffffff')
+      expect(colors).not.toContain('#000000')
+    }
+  })
+
+  it('柔和档 / 兜底档都是“同族中性色”：带一点底色倾向，但不跟底纹抢戏', () => {
+    // 8bit 量化会让 HSL 的饱和度在小明度下漂移，所以按 RGB 通道差判断“有没有色倾向”
+    const spread = (hex: string) => {
+      const [r, g, b] = hexToRgba(hex)
+      return Math.max(r, g, b) - Math.min(r, g, b)
+    }
+    const neutrals = buildTextCandidates(['#d9a227'], false).filter((c) => c.distance >= 3)
+    expect(neutrals.length).toBeGreaterThan(0)
+    for (const candidate of neutrals) {
+      expect(spread(candidate.color), `${candidate.color} 应当带一点底色倾向`).toBeGreaterThan(0)
+      expect(spread(candidate.color), `${candidate.color} 的色倾向应当很轻`).toBeLessThanOrEqual(16)
+    }
+  })
+
+  it('达标者里挑改动最小的一档，而不是对比度最高的那一张', () => {
+    // 色卡原色已经够 AA（5.4:1），就不该再往更亮/更暗的档位跑
+    const candidates = buildTextCandidates(['#e8e8e8'], false)
+    const chosen = chooseTextColor(candidates, { low: 0.03, high: 0.1 }, 4.5)
+    expect(chosen.distance).toBe(0)
+    expect(chosen.color).toBe('#e8e8e8')
+  })
+
+  it('中灰底上停在“最软的达标档”，不会一路黑到底', () => {
+    const candidates = buildTextCandidates(['#808080'], false)
+    const chosen = chooseTextColor(candidates, { low: 0.216, high: 0.216 }, 4.5)
+    expect(chosen.meetsStandard).toBe(true)
+    expect(chosen.contrast).toBeLessThan(6)
+    // 兜底档里先停在最软的一级，而不是更深的 #0F0F0F / #080808
+    expect(relativeLuminance(chosen.color)).toBeGreaterThan(relativeLuminance('#0f0f0f'))
   })
 })
 
