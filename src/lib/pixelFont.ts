@@ -20,17 +20,29 @@ export interface PixelFontSpec {
   /** UI 预览用（网页文字仍用 webfont），canvas 渲染完全不使用 */
   cssFamily: string
   nativeSize: number
+  /** 网页文字是否有对应 webfont；Mojangles 只有点阵数据 */
+  hasWebFont: boolean
   data: BitmapFontData
 }
 
 export const PIXEL_FONTS: PixelFontSpec[] = [
   {
+    id: 'mojangles',
+    name: 'Mojangles',
+    description: 'Minecraft 原版字体（官方 ascii.png 字模，比例字体）',
+    cssFamily: '"Minecraft", Silkscreen, monospace',
+    nativeSize: 8,
+    hasWebFont: false,
+    data: BITMAP_FONTS[0],
+  },
+  {
     id: 'silkscreen',
     name: 'Silkscreen',
-    description: '5×5 点阵，最接近 Minecraft 界面字体（推荐）',
+    description: '5×5 点阵，工整克制',
     cssFamily: 'Silkscreen',
     nativeSize: 8,
-    data: BITMAP_FONTS[0],
+    hasWebFont: true,
+    data: BITMAP_FONTS[1],
   },
   {
     id: 'press-start-2p',
@@ -38,11 +50,12 @@ export const PIXEL_FONTS: PixelFontSpec[] = [
     description: '经典 8 位街机字体，字重更粗',
     cssFamily: '"Press Start 2P"',
     nativeSize: 8,
-    data: BITMAP_FONTS[1],
+    hasWebFont: true,
+    data: BITMAP_FONTS[2],
   },
 ]
 
-export const DEFAULT_FONT_ID = 'silkscreen'
+export const DEFAULT_FONT_ID = 'mojangles'
 
 export function getPixelFont(id: string): PixelFontSpec {
   return PIXEL_FONTS.find((font) => font.id === id) ?? PIXEL_FONTS[0]
@@ -314,9 +327,8 @@ function toCanvas(block: TextBlock): HTMLCanvasElement {
   return canvas
 }
 
-/** 把文字块以整数倍最近邻放大绘制到目标上下文 */
-export function drawTextBlock(
-  ctx: CanvasRenderingContext2D,
+/** 纯函数：算出文字块最终落在画布上的位置与尺寸（画布与 SVG 导出共用同一套对位逻辑） */
+export function placeTextBlock(
   block: TextBlock,
   target: { x: number; y: number; width: number; height: number },
   scale: number,
@@ -327,6 +339,21 @@ export function drawTextBlock(
   const size = blockSize(block, k)
   const x = align === 'center' ? target.x + Math.floor((target.width - size.width) / 2) : target.x
   const y = vAlign === 'middle' ? target.y + Math.floor((target.height - size.height) / 2) : target.y
+  return { x, y, scale: k, width: size.width, height: size.height }
+}
+
+/** 把文字块以整数倍最近邻放大绘制到目标上下文 */
+export function drawTextBlock(
+  ctx: CanvasRenderingContext2D,
+  block: TextBlock,
+  target: { x: number; y: number; width: number; height: number },
+  scale: number,
+  align: 'left' | 'center' = 'center',
+  vAlign: 'top' | 'middle' = 'middle',
+): TextPlacement {
+  const placement = placeTextBlock(block, target, scale, align, vAlign)
+  const { x, y } = placement
+  const size = { width: placement.width, height: placement.height }
   const previous = ctx.imageSmoothingEnabled
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(
@@ -341,7 +368,7 @@ export function drawTextBlock(
     size.height,
   )
   ctx.imageSmoothingEnabled = previous
-  return { x, y, scale: k, width: size.width, height: size.height }
+  return placement
 }
 
 /**
@@ -355,13 +382,14 @@ export function ensureWebFonts(): Promise<boolean> {
   webFontPromise = (async () => {
     if (typeof document === 'undefined' || !document.fonts) return false
     try {
+      const webFonts = PIXEL_FONTS.filter((font) => font.hasWebFont)
       await Promise.all(
-        PIXEL_FONTS.map((font) =>
+        webFonts.map((font) =>
           document.fonts.load(`${font.nativeSize}px ${font.cssFamily}`, GLYPH_SAMPLE),
         ),
       )
       await document.fonts.ready
-      return PIXEL_FONTS.every((font) =>
+      return webFonts.every((font) =>
         document.fonts.check(`${font.nativeSize}px ${font.cssFamily}`),
       )
     } catch {

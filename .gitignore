@@ -7,6 +7,9 @@ npm-cache/
 # 视觉验证产物（由 npm run verify:visual 重新生成）
 verification/
 
+# 烘焙字体时缓存的原始字模表（Mojang 资源，不进仓库）
+.cache/
+
 # 编辑器 / 系统
 .DS_Store
 .idea/

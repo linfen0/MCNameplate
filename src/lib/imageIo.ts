@@ -33,6 +33,11 @@ export function rgbaToCanvas(image: RgbaImage): HTMLCanvasElement {
   return canvas
 }
 
+/** 位图 → PNG dataURL（用于把贴图内嵌进 SVG / glTF） */
+export function rgbaToDataUrl(image: RgbaImage): string {
+  return rgbaToCanvas(image).toDataURL('image/png')
+}
+
 export function canvasToRgba(canvas: HTMLCanvasElement): RgbaImage {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('无法创建 2D 上下文')

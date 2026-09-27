@@ -90,9 +90,10 @@ export function GuidePage() {
       <Panel title="像素画质是怎么保证的">
         <div className="space-y-3">
           <Line>
-            字形是<b className="text-ink-100">烘进代码里的点阵数据</b>（由 Silkscreen / Press Start 2P
-            生成，95 个 ASCII 字形），运行时按位合成、整数倍最近邻放大——输出像素的 alpha 只可能是
-            0 或 255，<b className="text-ink-100">硬边是构造保证</b>。
+            字形是<b className="text-ink-100">烘进代码里的点阵数据</b>：默认 <b className="text-ink-100">Mojangles</b>
+            （Minecraft 原版 <Code>ascii.png</Code> 字模，比例字体），另可选 Silkscreen / Press Start 2P。
+            运行时按位合成、整数倍最近邻放大——输出像素的 alpha 只可能是 0 或 255，
+            <b className="text-ink-100">硬边是构造保证</b>。
           </Line>
           <Line>
             这样即使 webfont 被 CSP / 扩展 / iframe 拦掉（界面文字会退回系统字体），
@@ -133,6 +134,36 @@ export function GuidePage() {
               ))}
             </ul>
           </div>
+        </div>
+      </Panel>
+
+      <Panel title="导出：SVG（2D）与 3D 模型包">
+        <div className="space-y-3">
+          <Line>
+            <b className="text-ink-100">「下载 SVG」</b>导出分层矢量文件，每个构件都是独立图层
+            （实测 30 个）：
+          </Line>
+          <pre className="overflow-x-auto border-4 border-black bg-ink-900 p-3 font-mono text-xs text-grass-400">
+{`底板 / 背景纹理 / 外框倒角 / 分割线 / 肖像位 / 文字压暗
+头像
+  └ 2.5D 时是立方体几何：基础层·帽子层 × 6 个面
+     每个面 = 仿射变换 + 蒙皮贴图（可单独选中/替换）
+ID文字 → 每个字符一个矢量分组`}
+          </pre>
+          <Line>
+            <b className="text-ink-100">「下载 3D 模型包」</b>把<b className="text-ink-100">整块名牌</b>
+            做成真正的三维体，按同一套分层拆成 35 个对象（底板有厚度、肖像位是凹槽、
+            文字逐段挤出），内含：
+          </Line>
+          <ul className="space-y-1 font-sans text-sm text-ink-200">
+            <li>· <Code>blender/build_nameplate_3d.py</Code> —— Blender 里运行即生成原生场景与材质，贴图自动打包</li>
+            <li>· <Code>nameplate.gltf</Code> —— Blender / Spline / Three.js 直接导入</li>
+            <li>· <Code>nameplate.obj</Code> + <Code>.mtl</Code> + 13 张贴图 —— 通用交换格式</li>
+          </ul>
+          <Line>
+            为什么没有 .blend：它是 Blender 的内存转储二进制，结构随版本变化，程序生成无法保证被正确加载；
+            建场脚本生成的是完全原生的场景，运行后另存即为 .blend，效果等价且不会版本不兼容。
+          </Line>
         </div>
       </Panel>
 

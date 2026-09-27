@@ -11,10 +11,11 @@
  * 用法：node scripts/visual-check.mjs
  */
 
-import { spawn } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { unzipSync } from 'fflate'
 import { PNG } from 'pngjs'
 import { chromium } from 'playwright-core'
 
@@ -431,6 +432,89 @@ async function main() {
     // 回到默认贴合模式
     await page.getByRole('button', { name: '贴合头像' }).click()
     await page.waitForTimeout(500)
+
+    // ---- SVG 导出：分层结构 + 回渲染复核 ----
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载 SVG' }).click()
+    const download = await downloadPromise
+    const svgPath = path.join(OUT_DIR, 'nameplate.svg')
+    await download.saveAs(svgPath)
+    const svgText = await readFile(svgPath, 'utf8')
+
+    const layers = ['底板', '背景纹理', '外框倒角', '分割线', '头像肖像位', '文字压暗', '头像', 'ID文字']
+    const missing = layers.filter((id) => !svgText.includes(`<g id="${id}">`))
+    check(missing.length === 0, 'SVG 每个构件都是独立命名图层', missing.length ? `缺少 ${missing.join('/')}` : layers.join(' / '))
+    const glyphGroups = (svgText.match(/<g id="ID文字-\d+-/g) ?? []).length
+    check(glyphGroups === 10, 'SVG 里每个字符都是独立图层', `${glyphGroups} 个（ID 长度 10）`)
+    check(
+      (svgText.match(/<g[ >]/g) ?? []).length === (svgText.match(/<\/g>/g) ?? []).length,
+      'SVG 分组标签成对闭合',
+    )
+    check(
+      svgText.includes('<path') && svgText.includes('image-rendering="pixelated"'),
+      'SVG 同时包含矢量文字与像素化位图',
+    )
+
+    // 把 SVG 反过来渲染成图，确认浏览器渲染结果与画布一致
+    const svgPage = await browser.newPage({ viewport: { width: 1300, height: 420 } })
+    await svgPage.setContent(
+      `<body style="margin:0;background:#222"><img style="display:block;width:1280px;image-rendering:pixelated" src="data:image/svg+xml;base64,${Buffer.from(svgText).toString('base64')}"></body>`,
+    )
+    await svgPage.waitForTimeout(400)
+    await svgPage.screenshot({ path: path.join(OUT_DIR, 'nameplate-from-svg.png') })
+    await svgPage.close()
+
+    // ---- 3D 模型包：整块名牌的分层几何 ----
+    const zipPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载 3D 模型包' }).click()
+    const zipDownload = await zipPromise
+    const zipPath = path.join(OUT_DIR, 'nameplate_3d.zip')
+    await zipDownload.saveAs(zipPath)
+    const entries = unzipSync(new Uint8Array(await readFile(zipPath)))
+    const entryNames = Object.keys(entries)
+
+    const required = [
+      '导入说明.txt',
+      'blender/build_nameplate_3d.py',
+      'nameplate.gltf',
+      'nameplate.obj',
+      'nameplate.mtl',
+    ]
+    const missingFiles = required.filter((name) => !entryNames.includes(name))
+    check(missingFiles.length === 0, '3D 包包含脚本 / glTF / OBJ / MTL / 说明', missingFiles.join(','))
+    const textureFiles = entryNames.filter((name) => name.startsWith('textures/'))
+    check(textureFiles.length === 13, '3D 包带 13 张贴图（背景 + 头像 12 面）', `${textureFiles.length} 张`)
+
+    const objText = Buffer.from(entries['nameplate.obj']).toString('utf8')
+    const objVertices = (objText.match(/^v /gm) ?? []).length
+    const objFaces = (objText.match(/^f /gm) ?? []).length
+    const objObjects = (objText.match(/^o /gm) ?? []).length
+    check(objObjects === 35, 'OBJ 里整块名牌被拆成 35 个对象（含逐字符文字）', `${objObjects} 个`)
+    check(
+      objFaces === objVertices / 2,
+      'OBJ 每个四边形拆成两个三角形',
+      `顶点 ${objVertices} / 面 ${objFaces}`,
+    )
+    check(!objText.includes('NaN') && !objText.includes('undefined'), 'OBJ 没有 NaN / undefined')
+
+    const gltf = JSON.parse(Buffer.from(entries['nameplate.gltf']).toString('utf8'))
+    check(
+      gltf.asset?.version === '2.0' && gltf.meshes?.length === 35 && gltf.buffers?.[0]?.byteLength > 0,
+      'glTF 结构完整（35 个网格 + 内嵌 buffer）',
+      `meshes=${gltf.meshes?.length} materials=${gltf.materials?.length}`,
+    )
+    const gltfBinary = Buffer.from(String(gltf.buffers[0].uri).split(',')[1], 'base64').length
+    check(gltfBinary === gltf.buffers[0].byteLength, 'glTF buffer 长度与 base64 实际长度一致')
+
+    // Blender 脚本：落盘后用 python3 做真实语法检查
+    const scriptPath = path.join(OUT_DIR, 'build_nameplate_3d.py')
+    await writeFile(scriptPath, Buffer.from(entries['blender/build_nameplate_3d.py']))
+    const compile = await new Promise((resolve) => {
+      execFile('python3', ['-m', 'py_compile', scriptPath], (error, _stdout, stderr) =>
+        resolve({ ok: !error, message: error ? String(stderr || error.message).slice(0, 200) : 'py_compile 通过' }),
+      )
+    })
+    check(compile.ok, 'Blender 建场脚本通过 python3 语法编译', compile.message)
 
     // ---- 2D 正面：验证像素硬边 ----
     await page.getByRole('button', { name: '2D 正面' }).click()

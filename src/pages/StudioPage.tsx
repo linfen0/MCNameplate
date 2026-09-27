@@ -52,6 +52,7 @@ export function StudioPage() {
           <ExportControls
             canvasRef={canvasRef}
             config={config}
+            skin={skin}
             patch={patch}
             disabled={!canExport}
             onReset={reset}

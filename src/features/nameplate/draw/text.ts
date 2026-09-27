@@ -2,16 +2,14 @@
 
 import {
   blockSize,
-  createMeasure,
   drawTextBlock,
-  fitTextScale,
   renderTextBlock,
   type PixelFontSpec,
 } from '../../../lib/pixelFont'
 import type { Theme } from '../../../lib/themes'
 import type { NameplateConfig } from '../config'
 import type { LayoutPlan } from '../layout'
-import { idDisplayText } from '../resolve'
+import { layoutIdText } from '../textLayout'
 
 export interface IdTextResult {
   /** 实际绘制到名牌上的文字 */
@@ -28,29 +26,11 @@ export function drawIdText(
   font: PixelFontSpec,
   config: NameplateConfig,
 ): IdTextResult {
-  const placeholder = config.id.trim().length === 0
-  const text = idDisplayText(config)
+  // 与 SVG / 3D 导出共用同一份排版逻辑
+  const layout = layoutIdText(font, theme, config, plan.idBox)
 
-  const block = renderTextBlock({
-    text,
-    font,
-    fill: theme.text.fill,
-    shadow:
-      config.shadow && theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null,
-    opacity: placeholder ? 0.4 : 1,
-  })
-
-  // 行高用字库的真实墨迹高度（不是 em），这样“字高占铭牌高度 1/φ²”才精确
-  const scale = fitTextScale(createMeasure(font), text, {
-    maxWidth: plan.idBox.width,
-    maxHeight: plan.idBox.height,
-    lineHeight: block.lineHeight,
-    padding: block.padding,
-    maxScale: 256,
-  })
-
-  drawTextBlock(ctx, block, plan.idBox, scale, 'center', 'middle')
-  return { text, scale, placeholder }
+  drawTextBlock(ctx, layout.block, plan.idBox, layout.scale, 'center', 'middle')
+  return { text: layout.text, scale: layout.scale, placeholder: layout.placeholder }
 }
 
 /** 在指定锚点绘制一小段像素文字（用于辅助线标注），返回实际占位 */
