@@ -359,9 +359,13 @@ export function buildTextCandidates(swatches: string[], lightBackground: boolean
   })
 }
 
-/** 亮侧 / 暗侧的亮度门槛：`light` 明显比中灰亮，`dark` 明显比中灰暗 */
+/**
+ * 亮侧 / 暗侧的亮度门槛。
+ * 亮侧只排除"比中灰还暗"的候选（0.3）——卡到 0.45 会把用户材质里
+ * 本来能用的中间调（比如 #BEA686 这种暖棕）直接踢掉，算法只好往近白爬。
+ */
 const SIDE_THRESHOLD: Record<ToneDirection, { test: (luminance: number) => boolean }> = {
-  light: { test: (luminance) => luminance >= 0.45 },
+  light: { test: (luminance) => luminance >= 0.3 },
   dark: { test: (luminance) => luminance <= 0.3 },
 }
 

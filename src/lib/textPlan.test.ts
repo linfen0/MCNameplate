@@ -55,9 +55,9 @@ describe('planText：亮字优先，绝不给 ID 压黑', () => {
     expect(style.threshold).toBe(3)
     expect(style.largeText).toBe(true)
     expect(style.route).toBe('scrim')
-    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.44)
+    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.58)
     expect(style.contrast).toBeGreaterThanOrEqual(style.threshold)
-    expect(relativeLuminance(style.fill)).toBeGreaterThan(0.5)
+    expect(relativeLuminance(style.fill)).toBeGreaterThan(0.35)
     expect(style.fill).not.toBe('#ffffff')
   })
 
@@ -79,9 +79,9 @@ describe('planText：亮字优先，绝不给 ID 压黑', () => {
       textHeightPx: 200,
     })
     expect(style.contrast).toBeGreaterThanOrEqual(style.threshold)
-    // 关键：不再一路推到近白
-    expect(relativeLuminance(style.fill)).toBeLessThanOrEqual(0.75)
-    expect(relativeLuminance(style.fill)).toBeGreaterThan(0.4)
+    // 关键：不再一路推到近白，而是停在材质里那档暖棕
+    expect(relativeLuminance(style.fill)).toBeLessThanOrEqual(0.6)
+    expect(relativeLuminance(style.fill)).toBeGreaterThan(0.25)
     expect(style.fill).not.toBe('#ffffff')
     // 而且文字色是色卡附近的那几档
     expect(style.distance).toBeLessThanOrEqual(2)
@@ -93,7 +93,7 @@ describe('planText：亮字优先，绝不给 ID 压黑', () => {
     expect(style.outline).toBeNull()
     expect(style.shadow).toBeTruthy()
     expect(style.contrast).toBeGreaterThanOrEqual(style.threshold)
-    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.44)
+    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.58)
     expect(relativeLuminance(style.fill)).toBeGreaterThan(relativeLuminance(palette.dark))
     expect(style.fill).not.toBe('#ffffff')
     expect(style.shadow).not.toBe('#000000')
