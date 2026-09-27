@@ -41,6 +41,8 @@ export interface NameplateConfig {
   fontId: string
   uppercase: boolean
   shadow: boolean
+  /** 同族描边：默认关，优先 Minecraft 式的 1 像素投影；开了就用描边替代投影 */
+  textOutline: boolean
   showDivider: boolean
   /** 文字下方加棋盘格压暗，提升纹理底色上的可读性 */
   textBackdrop: boolean
@@ -144,6 +146,7 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   fontId: DEFAULT_FONT_ID,
   uppercase: true,
   shadow: true,
+  textOutline: false,
   showDivider: true,
   // 文字可读性现在由「亮字 + 同族描边」保证（见 lib/textPlan），
   // 这层装饰性压暗底默认关掉：底纹保持原样更和谐，需要时用户自己开

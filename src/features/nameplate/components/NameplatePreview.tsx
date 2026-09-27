@@ -82,22 +82,34 @@ export function NameplatePreview({
           {config.aspect === 'auto' ? '自适应' : '固定'}宽高比 {size.width}×{size.height} · ID 文本放大{' '}
           {result.textScale}× · 文字色{' '}
           <code className="font-mono text-[11px]">{result.textStyle.fill}</code> 对比度{' '}
-          <span className={result.textStyle.contrast >= 4.5 ? 'text-grass-400' : 'text-gold-400'}>
+          <span
+            className={
+              result.textStyle.contrast >= result.textStyle.threshold ? 'text-grass-400' : 'text-gold-400'
+            }
+          >
             {result.textStyle.contrast.toFixed(1)}:1{' '}
-            {result.textStyle.contrast >= 4.5 ? '（WCAG AA ✓）' : '（低于 AA）'}
+            {result.textStyle.contrast >= result.textStyle.threshold
+              ? `（WCAG AA ${result.textStyle.largeText ? '大字 3:1' : '正文 4.5:1'} ✓）`
+              : '（低于 AA）'}
           </span>{' '}
           ·{' '}
           {result.textStyle.route === 'halo'
-            ? `加同族描边 ${result.textStyle.outline}${
+            ? `亮字 + 同族描边 ${result.textStyle.outline}${
                 result.textStyle.outlineContrast !== null
                   ? `（描边与底纹 ${result.textStyle.outlineContrast.toFixed(1)}:1）`
                   : ''
               }`
-            : result.textStyle.route === 'scrim'
-              ? `垫同色系柔化底 ${result.textStyle.scrim?.color ?? ''} @ ${Math.round(
-                  (result.textStyle.scrim?.alpha ?? 0) * 100,
-                )}%`
-              : '直接压在底纹上'}{' '}
+            : result.textStyle.route === 'dark'
+              ? `底纹太浅撑不住亮字，改用同族暗色 ${result.textStyle.fill}`
+              : `亮字${
+                  result.textStyle.shadow ? ` + 同族投影 ${result.textStyle.shadow}` : ''
+                }${
+                  result.textStyle.route === 'scrim'
+                    ? ` + 同色系柔化底 ${result.textStyle.scrim?.color ?? ''} @ ${Math.round(
+                        (result.textStyle.scrim?.alpha ?? 0) * 100,
+                      )}%`
+                    : '，底纹未动'
+                }`}{' '}
           ·{' '}
           {result.textStyle.distance === 0
             ? '取色卡原色'

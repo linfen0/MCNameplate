@@ -1,23 +1,48 @@
 /**
- * 文字描边（halo）的取舍。
+ * 文字描边（halo）与投影（shadow）的取舍。
  *
  * 问题：亮字压在浅色底纹上时（用户上传的浅色方块贴图），要么把文字压暗、要么把底压暗。
- * 业界在游戏 UI / 像素画里的标准解法是第三条路 —— **给亮字加一圈同色系的描边**：
- * 字形紧挨着的是描边而不是花底，局部对比度稳定，底纹一点都没动。
+ * 业界有两条路：
+ *   · **投影**（Minecraft 原版、绝大多数游戏 UI）：亮字 + 1 像素暗投影，观感最"像素画"；
+ *     但投影是偏一侧的，字形左上边缘仍然直接落在底纹上，所以它保证不了 WCAG 的数学要求。
+ *   · **描边**（Material 的 on-image text、游戏里的描边字）：一圈同族暗色把字形整个包住，
+ *     字形紧挨着的是描边而不是花底，局部对比度稳定。默认关闭，用户想要时再开。
+ * 所以默认用投影（用户偏好），达不到阈值的部分交给同色系柔化底补（见 textPlan）。
  *
- * WCAG 上也站得住：1.4.3 看的是文字与"紧挨着它的那一层"，所以要求
- *   文字 ↔ 描边 ≥ 4.5:1（正文标准），
- *   描边 ↔ 底纹 ≥ 3:1（1.4.11 非文本对比度，保证轮廓看得见）。
- * 两边都从同一张色卡里取，所以描边不会变成"黑边贴纸"。
- *
+ * WCAG 读法：带描边时按 1.4.3 看"紧挨着它的那一层"，另加 1.4.11 的 3:1 保证轮廓看得见。
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
 import { relativeLuminance } from './color'
 import { TEXT_CONTRAST_TARGET, type TextCandidate } from './palette'
 
-/** WCAG 1.4.11 非文本对比度：描边相对底纹至少到这个值才算看得见 */
+/** WCAG 1.4.11 非文本对比度：投影 / 描边相对底纹至少到这个值才算看得见 */
 export const MIN_GRAPHIC_CONTRAST = 3
+
+/**
+ * 给定文字色，从**反侧**候选里挑投影色：
+ * 与文字至少拉开 3:1（不然"投影"看不见），在达标者里取改动最小、够用就停的一档。
+ */
+export function chooseShadowColor(
+  fill: string,
+  others: TextCandidate[],
+  minContrast = MIN_GRAPHIC_CONTRAST,
+): TextCandidate | null {
+  const fillLum = relativeLuminance(fill)
+  const usable = others
+    .map((candidate) => ({
+      candidate,
+      contrast: ratio(fillLum, relativeLuminance(candidate.color)),
+    }))
+    .filter((item) => item.contrast >= minContrast)
+  if (usable.length === 0) return null
+  usable.sort(
+    (a, b) =>
+      a.candidate.distance - b.candidate.distance ||
+      Math.abs(a.contrast - TEXT_CONTRAST_TARGET) - Math.abs(b.contrast - TEXT_CONTRAST_TARGET),
+  )
+  return usable[0].candidate
+}
 
 function ratio(a: number, b: number): number {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)

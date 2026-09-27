@@ -65,23 +65,38 @@ function sampleBackground(ctx: CanvasRenderingContext2D, rect: Rect): Background
 }
 
 /**
- * 垫一层同色系的柔化底（scrim）：只在“任何单色文字都达不到 WCAG AA”时才用。
- * 对齐到面板的像素网格，免得贴图与底衬之间出现半像素毛边。
+ * 垫一层同色系的柔化底（scrim）：只在“亮字 + 投影都达不到阈值”时才用。
+ * 分两级铺：文字区铺满（保证每个字形像素都吃到），外圈再点阵半格淡出，
+ * 这样看起来像底纹自然变深，而不是贴了一块硬边补丁。两级都对齐面板像素网格。
  */
 function drawScrim(ctx: CanvasRenderingContext2D, plan: LayoutPlan, scrim: ScrimPlan, text: Rect): void {
   const cell = Math.max(1, plan.unit)
   const floor = (value: number) => plan.inner.x + Math.floor((value - plan.inner.x) / cell) * cell
   const ceil = (value: number) => plan.inner.x + Math.ceil((value - plan.inner.x) / cell) * cell
-  const margin = cell * 2
-  const x = Math.max(plan.inner.x, floor(text.x - margin))
-  const y = Math.max(plan.inner.y, floor(text.y - margin))
-  const right = Math.min(plan.inner.x + plan.inner.width, ceil(text.x + text.width + margin))
-  const bottom = Math.min(plan.inner.y + plan.inner.height, ceil(text.y + text.height + margin))
-  if (right <= x || bottom <= y) return
+  const clampX = (value: number) => Math.max(plan.inner.x, Math.min(plan.inner.x + plan.inner.width, value))
+  const clampY = (value: number) => Math.max(plan.inner.y, Math.min(plan.inner.y + plan.inner.height, value))
+  const core = { x: clampX(floor(text.x - cell)), y: clampY(floor(text.y - cell)) }
+  const coreRight = clampX(ceil(text.x + text.width + cell))
+  const coreBottom = clampY(ceil(text.y + text.height + cell))
+  const outer = { x: clampX(floor(core.x - cell * 2)), y: clampY(floor(core.y - cell * 2)) }
+  const outerRight = clampX(ceil(coreRight + cell * 2))
+  const outerBottom = clampY(ceil(coreBottom + cell * 2))
   ctx.save()
-  ctx.globalAlpha = scrim.alpha
   ctx.fillStyle = scrim.color
-  ctx.fillRect(x, y, right - x, bottom - y)
+  // 外圈：间隔一格的点阵，只有一半覆盖率 —— 像素画的 dither 淡出
+  ctx.globalAlpha = scrim.alpha * 0.5
+  for (let y = outer.y; y < outerBottom; y += cell * 2) {
+    for (let x = outer.x; x < outerRight; x += cell * 2) {
+      const inside = x >= core.x && x < coreRight && y >= core.y && y < coreBottom
+      if (inside) continue
+      ctx.fillRect(x, y, Math.min(cell, outerRight - x), Math.min(cell, outerBottom - y))
+    }
+  }
+  // 文字区：整块铺满，保证每个字形像素都吃到这一层
+  ctx.globalAlpha = scrim.alpha
+  if (coreRight > core.x && coreBottom > core.y) {
+    ctx.fillRect(core.x, core.y, coreRight - core.x, coreBottom - core.y)
+  }
   ctx.restore()
 }
 
@@ -106,13 +121,12 @@ export function drawIdText(
 ): IdTextResult {
   const placeholder = config.id.trim().length === 0
   const text = idDisplayText(config)
-  const shadowColor = config.shadow ? theme.text.shadow : null
-  const shadow = shadowColor ? { color: shadowColor, offset: 1 } : null
+  const samplingShadow = theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null
 
   // 1) 先排版。文字块的尺寸只取决于字体 / 文本 / 描边，与颜色无关，
-  //    这里按“可能需要描边”的留白量一次尺寸（描边 1 原生像素），
+  //    这里按“可能需要描边 / 投影”的留白量一次尺寸（1 原生像素），
   //    采样矩形、缩放倍率、描边与文字块都用同一份，前后不会错位。
-  const samplingMetrics = measureTextBlock({ text, font, fill: theme.text.fill, shadow })
+  const samplingMetrics = measureTextBlock({ text, font, fill: theme.text.fill, shadow: samplingShadow })
   const scale = fitTextScale(createMeasure(font), text, {
     maxWidth: plan.idBox.width,
     maxHeight: plan.idBox.height,
@@ -125,18 +139,23 @@ export function drawIdText(
   // 2) 采样文字背后的真实像素
   const background = sampleBackground(ctx, placement)
 
-  // 3) 亮字优先 → 不够加同族描边 → 最后才垫柔化底（见 lib/textPlan）
+  // 3) 亮字优先 → 同族投影 →（可选）同族描边 → 同色系柔化底（见 lib/textPlan）
   const swatches = theme.palette
     ? [theme.palette.light, theme.palette.accent, theme.palette.dark, theme.palette.base]
     : [theme.text.fill]
-  const style = planText({ swatches, background, tint: scrimTintOf(theme) })
+  const style = planText({
+    swatches,
+    background,
+    tint: scrimTintOf(theme),
+    outline: config.textOutline,
+    textHeightPx: samplingMetrics.lineHeight * scale,
+  })
   if (style.scrim) drawScrim(ctx, plan, style.scrim, placement)
 
   // 有描边时不再叠投影：描边已经给了轮廓，再来个投影只会糊成一团
-  const usedShadow = style.outline
-    ? null
-    : shadow && shadow.color !== style.fill
-      ? shadow
+  const usedShadow =
+    !style.outline && config.shadow && style.shadow && style.shadow !== style.fill
+      ? { color: style.shadow, offset: 1 }
       : null
   const block = renderTextBlock({
     text,

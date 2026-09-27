@@ -1,32 +1,41 @@
 /**
- * 文字配色的最终方案：**亮字优先 → 不够就加同族描边 → 最后才垫柔化底**。
+ * 文字配色的最终方案：**亮字优先 → 同族投影 → （可选）同族描边 → 同色系柔化底**。
  *
  * 画布渲染、SVG / 3D 导出都走这一份，保证三处颜色一模一样。
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
 import { relativeLuminance } from './color'
-import {
-  buildTextCandidates,
-  chooseTextColor,
-  MIN_TEXT_CONTRAST,
-  sideCandidates,
-} from './palette'
-import { chooseHalo } from './textColor'
+import { chooseTextColor, MIN_TEXT_CONTRAST, sideCandidates } from './palette'
+import { chooseHalo, chooseShadowColor } from './textColor'
 import { chooseScrim, type BackgroundSample, type ScrimPlan } from './scrim'
 
 export { MIN_TEXT_CONTRAST }
 
+/**
+ * WCAG 1.4.3 的**大字**阈值：正文 4.5:1，≥24px（或 ≥18.66px 粗体）的字 3:1。
+ * 名牌 ID 的墨迹高在所有档位下都远超 24px（256px 高的名牌就有 ~98px），
+ * 所以按大字标准判定 —— 这不是放水，是标准本来就为大字准备的另一档。
+ */
+export const LARGE_TEXT_PX = 24
+export const LARGE_TEXT_CONTRAST = 3
+
 /** 达标走的哪条路，界面据此解释 */
-export type TextRoute = 'palette' | 'halo' | 'scrim'
+export type TextRoute = 'palette' | 'halo' | 'scrim' | 'dark'
 
 export interface TextStyle {
   /** 文字色 */
   fill: string
-  /** 描边色；null 表示不需要描边 */
+  /** 同族描边色（可选路线）；null 表示没描边 */
   outline: string | null
+  /** 同族投影色；null 表示这段文字不投影（用户关了阴影或用了描边） */
+  shadow: string | null
   /** 文字与紧挨着它的那一层（描边，或直接就是底纹）的对比度 */
   contrast: number
+  /** 本次采用的 WCAG 阈值（大字 3:1 / 正文 4.5:1） */
+  threshold: number
+  /** 是否按大字判定 */
+  largeText: boolean
   /** 有描边时：描边相对最不利底纹的对比度（需要 ≥ 3） */
   outlineContrast: number | null
   /** 文字色离用户色卡有多远（0 = 色卡原色） */
@@ -42,65 +51,94 @@ export interface TextPlanInput {
   background: BackgroundSample
   /** 柔化底的定调色 */
   tint: string
+  /** 用户是否选择「同族描边」；默认 false —— 优先 Minecraft 式的投影 */
+  outline?: boolean
+  /** 文字墨迹高度（画布像素），用来判定大字阈值；不传按大字处理 */
+  textHeightPx?: number
   minContrast?: number
 }
 
 /**
  * 决定文字怎么画：
- *   1. 亮字直接压在底纹上就达标（深色底纹走这条）→ 最干净；
- *   2. 浅色 / 花底纹 → 亮字 + 同族描边，底纹一点不动；
- *   3. 同时有很亮和很暗像素的花底 → 最后才垫一层同色系柔化底。
- * 全程不会出现纯白 / 纯黑，也不会为了达标把 ID 压黑。
+ *   1. 亮字直接压在底纹上就达标（深色底纹走这条）→ 最干净，配 1 像素同族投影；
+ *   2. 用户开了「同族描边」→ 亮字 + 描边，底纹一点不动；
+ *   3. 浅色 / 花底纹 → 亮字 + 同族投影，再垫**最小强度**的同色系柔化底补足阈值；
+ *   4. 连柔化底都救不回来（几乎不会发生）→ 退到同族暗色文字 + 亮投影，同样不动底纹。
+ * 全程不会出现纯白 / 纯黑，也不会为了达标把 ID 推成近黑。
  */
 export function planText(input: TextPlanInput): TextStyle {
   const { swatches, background, tint } = input
-  const minContrast = input.minContrast ?? MIN_TEXT_CONTRAST
+  const largeText = (input.textHeightPx ?? Number.POSITIVE_INFINITY) >= LARGE_TEXT_PX
+  const threshold = input.minContrast ?? (largeText ? LARGE_TEXT_CONTRAST : MIN_TEXT_CONTRAST)
   const range = { low: relativeLuminance(background.dark), high: relativeLuminance(background.light) }
+  const bright = sideCandidates(swatches, 'light')
+  const dark = sideCandidates(swatches, 'dark')
+  const shadowFor = (fill: string) =>
+    chooseShadowColor(fill, relativeLuminance(fill) > 0.5 ? dark : bright)?.color ?? null
 
-  const bright = chooseTextColor(sideCandidates(swatches, 'light'), range, minContrast)
-  if (bright.meetsStandard) {
+  const direct = chooseTextColor(bright, range, threshold)
+  if (direct.meetsStandard) {
     return {
-      fill: bright.color,
+      fill: direct.color,
       outline: null,
-      contrast: bright.contrast,
+      shadow: shadowFor(direct.color),
+      contrast: direct.contrast,
+      threshold,
+      largeText,
       outlineContrast: null,
-      distance: bright.distance,
+      distance: direct.distance,
       scrim: null,
       route: 'palette',
     }
   }
 
-  const halo = chooseHalo({
-    fills: sideCandidates(swatches, 'light'),
-    halos: sideCandidates(swatches, 'dark'),
-    range,
-    minContrast,
-  })
-  if (halo) {
-    return {
-      fill: halo.fill,
-      outline: halo.outline,
-      contrast: halo.contrast,
-      outlineContrast: halo.plateContrast,
-      distance: halo.fillDistance,
-      scrim: null,
-      route: 'halo',
+  if (input.outline) {
+    const halo = chooseHalo({ fills: bright, halos: dark, range, minContrast: threshold })
+    if (halo) {
+      return {
+        fill: halo.fill,
+        outline: halo.outline,
+        shadow: null,
+        contrast: halo.contrast,
+        threshold,
+        largeText,
+        outlineContrast: halo.plateContrast,
+        distance: halo.fillDistance,
+        scrim: null,
+        route: 'halo',
+      }
     }
   }
 
-  const scrim = chooseScrim({
-    tint,
-    background,
-    candidates: buildTextCandidates(swatches, false),
-    minContrast,
-  })
+  // 亮字 + 同族投影，再用最小强度的同色系柔化底把阈值补上（仍然保持亮字）
+  const scrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold })
+  if (scrim.meetsStandard) {
+    return {
+      fill: scrim.text,
+      outline: null,
+      shadow: shadowFor(scrim.text),
+      contrast: scrim.contrast,
+      threshold,
+      largeText,
+      outlineContrast: null,
+      distance: scrim.textDistance,
+      scrim,
+      route: 'scrim',
+    }
+  }
+
+  // 兜底：同族暗色文字 + 亮投影，底纹依旧不动
+  const fallback = chooseTextColor(dark, range, threshold)
   return {
-    fill: scrim.text,
+    fill: fallback.color,
     outline: null,
-    contrast: scrim.contrast,
+    shadow: shadowFor(fallback.color),
+    contrast: fallback.contrast,
+    threshold,
+    largeText,
     outlineContrast: null,
-    distance: scrim.textDistance,
-    scrim,
-    route: 'scrim',
+    distance: fallback.distance,
+    scrim: null,
+    route: 'dark',
   }
 }

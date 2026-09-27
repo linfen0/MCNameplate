@@ -60,10 +60,11 @@ export function resolveTheme(config: NameplateConfig): Theme {
     swatches: [palette.light, palette.accent, palette.dark, palette.base],
     background: { dark: palette.dark, light: palette.light, lightBackground: palette.luminance > 0.32 },
     tint: palette.base,
+    outline: config.textOutline,
   })
   const theme: Theme = {
     ...base,
-    text: { fill: style.fill, outline: style.outline, shadow: base.text.shadow },
+    text: { fill: style.fill, outline: style.outline, shadow: style.shadow ?? base.text.shadow },
   }
   if (cached) cached.set(key, theme)
   else cache.set(custom.image, new Map([[key, theme]]))

@@ -27,8 +27,12 @@ const SCRIM_MAX_CHROMA = 0.16
 
 const SCRIM_HUE_SHIFT = 0.22
 
-/** 强度阶梯：从最轻开始试，够用就停；最后一档铺满整块（此时背景变成均匀一色，必然达标） */
-const SCRIM_ALPHAS = [0.3, 0.44, 0.58, 0.72, 0.86, 1]
+/**
+ * 强度阶梯：从最轻开始试，够用就停。
+ * 最高只到 0.86 —— 再往上就等于把用户贴图整块盖掉了，
+ * 那时候宁可退到「同族暗色文字」（见 textPlan），也不会用一块实心板糊住底纹。
+ */
+const SCRIM_ALPHAS = [0.3, 0.44, 0.58, 0.72, 0.86]
 
 /** 用户手动打开的“压暗底”（装饰性棋盘格）默认强度与覆盖率 */
 export const BACKDROP_ALPHA = 0.42
@@ -119,6 +123,6 @@ export function chooseScrim(input: ScrimInput): ScrimPlan {
     }
     if (plan.meetsStandard) return plan
   }
-  // SCRIM_ALPHAS 非空：走到这里说明最后一档（铺满整块）也没达标，如实返回
+  // SCRIM_ALPHAS 非空：走到这里说明最重的一档也没达标，如实返回（上层会改用同族暗色文字）
   return plan as ScrimPlan
 }

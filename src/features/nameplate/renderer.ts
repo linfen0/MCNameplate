@@ -89,8 +89,13 @@ export function renderNameplate(
   // 把解析出来的文字配色挂到画布上：界面与端到端验证都读这里，避免各自猜
   canvas.dataset.textFill = idResult.style.fill
   canvas.dataset.textOutline = idResult.style.outline ?? ''
+  canvas.dataset.textShadow = idResult.style.shadow ?? ''
   canvas.dataset.textContrast = idResult.style.contrast.toFixed(2)
+  canvas.dataset.textThreshold = String(idResult.style.threshold)
   canvas.dataset.textRoute = idResult.style.route
+  canvas.dataset.textScrim = idResult.style.scrim
+    ? `${idResult.style.scrim.color}@${idResult.style.scrim.alpha}`
+    : ''
 
   const ratio = summarizeBlocks(
     layout.inner.width,

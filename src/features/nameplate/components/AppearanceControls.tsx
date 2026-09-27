@@ -103,6 +103,12 @@ export function AppearanceControls({ config, patch, library }: AppearanceControl
             onChange={(checked) => patch({ shadow: checked })}
           />
           <PixelToggle
+            label="同族描边"
+            hint="关：用投影 + 必要时的同色系柔化底；开：亮字加一圈描边"
+            checked={config.textOutline}
+            onChange={(checked) => patch({ textOutline: checked })}
+          />
+          <PixelToggle
             label="黄金分割分割线"
             checked={config.showDivider}
             onChange={(checked) => patch({ showDivider: checked })}
