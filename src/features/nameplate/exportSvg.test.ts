@@ -112,18 +112,16 @@ describe('composeNameplateSvg', () => {
 
   it('每个构件都是独立命名的图层（Figma 里可逐个选中）', () => {
     const svg = composeNameplateSvg(base())
-    for (const id of [
-      '底板',
-      '背景纹理',
-      '外框倒角',
-      '分割线',
-      '头像肖像位',
-      '文字压暗',
-      '头像',
-      'ID文字',
-    ]) {
+    for (const id of ['底板', '背景纹理', '外框倒角', '分割线', '头像肖像位', '头像', 'ID文字']) {
       expect(svg, `缺少图层 ${id}`).toContain(`<g id="${id}">`)
     }
+  })
+
+  it('用户手动打开「文字区压暗」时才多出那一层（默认已关：可读性由描边保证）', () => {
+    const withBackdrop = base()
+    withBackdrop.config = { ...withBackdrop.config, textBackdrop: true }
+    expect(composeNameplateSvg(withBackdrop)).toContain('<g id="文字压暗">')
+    expect(composeNameplateSvg(base())).not.toContain('<g id="文字压暗">')
   })
 
   it('纯色主题用 rect 而不是内嵌图', () => {

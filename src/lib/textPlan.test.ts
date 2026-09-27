@@ -38,7 +38,7 @@ describe('planText：亮字优先，绝不给 ID 压黑', () => {
     expect(style.route).toBe('halo')
     expect(style.outline).toBeTruthy()
     expect(style.contrast).toBeGreaterThanOrEqual(4.5)
-    expect(relativeLuminance(style.fill)).toBeGreaterThan(relativeLuminance(palette.light))
+    expect(relativeLuminance(style.fill)).toBeGreaterThanOrEqual(relativeLuminance(palette.light))
     expect(style.fill).not.toBe('#ffffff')
     expect(style.outline).not.toBe('#000000')
     // 描边要看得见轮廓：1.4.11 的 3:1

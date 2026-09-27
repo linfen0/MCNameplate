@@ -217,6 +217,8 @@ function renderImageTexture(
 }
 
 const cache = new Map<string, RgbaImage>()
+/** 贴图底纹按“图像对象身份”分别缓存：只按尺寸做 key 会让换贴图后仍显示上一张 */
+const imageCache = new WeakMap<RgbaImage, Map<string, RgbaImage>>()
 
 /** 带缓存：连续重绘时不必重复生成整块底纹 */
 export function getPanelTexture(
@@ -225,11 +227,17 @@ export function getPanelTexture(
   height: number,
   seed: number,
 ): RgbaImage {
-  // image 底纹带 ImageData，不能进 JSON key
-  const key =
-    texture.kind === 'image'
-      ? `image|${texture.image.width}x${texture.image.height}|${texture.mode}|${texture.texelScale}|${texture.slice}|${width}x${height}`
-      : `${JSON.stringify(texture)}|${width}x${height}|${seed}`
+  if (texture.kind === 'image') {
+    const key = `${texture.mode}|${texture.texelScale}|${texture.slice}|${width}x${height}`
+    const entries = imageCache.get(texture.image)
+    const hit = entries?.get(key)
+    if (hit) return hit
+    const value = renderPanelTexture(texture, width, height, seed)
+    if (entries) entries.set(key, value)
+    else imageCache.set(texture.image, new Map([[key, value]]))
+    return value
+  }
+  const key = `${JSON.stringify(texture)}|${width}x${height}|${seed}`
   const hit = cache.get(key)
   if (hit) return hit
   const value = renderPanelTexture(texture, width, height, seed)
