@@ -52,6 +52,13 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
+/** WCAG 对比度（1:1 ~ 21:1） */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
 export function isLightColor(hex: string): boolean {
   return relativeLuminance(hex) > 0.45
 }

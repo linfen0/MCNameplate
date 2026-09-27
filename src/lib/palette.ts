@@ -7,7 +7,7 @@
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
-import { hexToRgba, relativeLuminance, rgbaToHex, shadeHex } from './color'
+import { contrastRatio, hexToRgba, relativeLuminance, rgbaToHex, shadeHex } from './color'
 import type { RgbaImage } from './types'
 import type { Palette, PanelTexture } from './textures'
 import type { Theme, ThemeColorSet } from './themes'
@@ -177,9 +177,10 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
 
   // 文字色优先从“提取出的色卡”里挑对比度最高的那张；对比度不够时才退回纯黑/纯白。
   // 这样名牌的每个组件（底纹、外框、凹槽、文字）都来自同一张色卡。
-  const surface = palette.base
-  const textFill = pickTextColor(surface, [palette.light, palette.accent, palette.dark], lightBackground)
-  const textShadow = textShadowFor(textFill, surface, palette)
+  // 文字与描边都严格取自这张色卡（不引入卡外颜色）
+  const swatches = uniq([palette.light, palette.accent, palette.dark, palette.base])
+  const textFill = pickTextColor(palette.base, swatches, lightBackground)
+  const textShadow = pickShadowColor(textFill, swatches)
 
   const frame: ThemeColorSet = {
     fill: darken(palette.dark, 0.62),
@@ -236,18 +237,17 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
   }
 }
 
-/** WCAG 对比度 */
-function contrastRatio(a: string, b: string): number {
-  const la = relativeLuminance(a)
-  const lb = relativeLuminance(b)
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+function uniq(colors: string[]): string[] {
+  return [...new Set(colors)]
 }
 
-/** 别用黑色描边把亮色字糊掉；优先取同一张色卡里的另一极 */
-function textShadowFor(fill: string, surface: string, palette: ExtractedPalette): string {
-  const candidates = [palette.dark, palette.light, shadeHex(surface, -0.6), shadeHex(surface, 0.6)]
-  const usable = candidates.filter((color) => contrastRatio(color, fill) > 1.6)
-  if (usable.length === 0) return shadeHex(surface, -0.6)
+/**
+ * 描边色也只在色卡里挑：取与文字色对比度最高的一张（至少要能看出投影）。
+ * 不再用 shadeHex 现场推导颜色，保证名牌上出现的颜色全部来自用户贴图。
+ */
+export function pickShadowColor(fill: string, swatches: string[]): string {
+  const usable = swatches.filter((color) => color !== fill)
+  if (usable.length === 0) return fill
   return usable.sort((a, b) => contrastRatio(b, fill) - contrastRatio(a, fill))[0]
 }
 
