@@ -14,7 +14,8 @@
     "verify:visual": "tsc --noEmit && vite build && node scripts/visual-check.mjs",
     "check": "tsc --noEmit && vitest run && vite build && node scripts/visual-check.mjs && node scripts/validate-gltf.mjs",
     "build:font": "node scripts/build-bitmap-font.mjs",
-    "validate:gltf": "node scripts/validate-gltf.mjs"
+    "validate:gltf": "node scripts/validate-gltf.mjs",
+    "render:3d": "node scripts/render-3d-preview.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

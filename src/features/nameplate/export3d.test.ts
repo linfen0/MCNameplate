@@ -7,6 +7,7 @@ import type { RgbaImage } from '../../lib/types'
 import { DEFAULT_CONFIG } from './config'
 import { computeNameplateLayout } from './layout'
 import { layoutIdText } from './textLayout'
+import { CUBE_FACE_LABEL, projectCubeFaces } from './headGeometry'
 import {
   buildNameplate3DScene,
   createSceneProjection,
@@ -130,6 +131,60 @@ describe('几何必须落在名牌范围内（回归：文字推进偏移曾加�
   })
 })
 
+describe('世界坐标设计（底板轴对齐 + 头像带 2.5D 旋转）', () => {
+  it('底板是轴对齐的：贴着 z = 0 平面，只有厚度方向进入 -z', () => {
+    const scene = buildScene()
+    const plate = scene.parts.find((part) => part.name === '底板')
+    const zs = plate ? plate.quads.flatMap((quad) => quad.verts.map((v) => v.z)) : []
+    expect(Math.min(...zs)).toBeCloseTo(-0.08, 5)
+    expect(Math.max(...zs)).toBe(0)
+    // 底板的四个角在 X/Y 上应构成矩形（不倾斜）
+    const plateQuad = plate?.quads[0].verts
+    expect(plateQuad).toBeTruthy()
+    expect(plateQuad![0].y).toBeCloseTo(plateQuad![1].y, 6)
+    expect(plateQuad![1].x).toBeCloseTo(plateQuad![2].x, 6)
+  })
+
+  it('头像立方体确实带旋转（不是轴对齐的方块）', () => {
+    const scene = buildScene()
+    const face = scene.parts.find((part) => part.name === '基础层-正面')
+    const verts = face?.quads[0].verts ?? []
+    // 轴对齐的四边形只会在两个轴上变化；带旋转后三个轴都会变
+    const spread = (values: number[]) => Math.max(...values) - Math.min(...values)
+    const xs = verts.map((v) => v.x)
+    const ys = verts.map((v) => v.y)
+    const zs = verts.map((v) => v.z)
+    expect(spread(xs)).toBeGreaterThan(0)
+    expect(spread(ys)).toBeGreaterThan(0)
+    expect(spread(zs)).toBeGreaterThan(0)
+  })
+
+  it('从 +Z 正交看过去，头像投影与 2D/SVG 的立方体投影一致', () => {
+    const layout = buildLayout()
+    const scene = buildScene()
+    const { canvasOf } = createSceneProjection(layout)
+    for (const expected of projectCubeFaces(layout.headBox, 0.5, 8)) {
+      const part = scene.parts.find((item) => item.name === `基础层-${CUBE_FACE_LABEL[expected.name]}`)
+      expect(part, `缺少 ${expected.name} 面`).toBeTruthy()
+      const actual = part!.quads[0].verts.map(canvasOf)
+      expected.corners.forEach((corner, index) => {
+        expect(actual[index].x).toBeCloseTo(corner.x, 3)
+        expect(actual[index].y).toBeCloseTo(corner.y, 3)
+      })
+    }
+  })
+
+  it('头像中心在底板上方，朝向观察者', () => {
+    const layout = buildLayout()
+    const scene = buildScene()
+    const projection = createSceneProjection(layout)
+    expect(projection.headCenter.z).toBeGreaterThan(0)
+    const face = scene.parts.find((part) => part.name === '基础层-正面')
+    const zs = face?.quads[0].verts.map((v) => v.z) ?? []
+    expect(Math.min(...zs)).toBeGreaterThan(-0.1)
+  })
+})
+
 describe('世界坐标映射', () => {
   it('名牌高度 = 1 个单位，正面居中', () => {
     const layout = computeNameplateLayout({
@@ -203,10 +258,11 @@ describe('3D 场景分层', () => {
     const chars = scene.parts.filter((part) => part.group === 'ID文字')
     expect(chars).toHaveLength('NOTCH_2024'.length)
     expect(chars[0].name).toBe('字符-01-N')
-    const quad = chars[0].quads[0]
-    // 挤出：同一段像素的前后两面 z 不同
-    const zs = quad.verts.map((v) => v.z)
-    expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(0)
+    // 挤出：同一段像素的正面与背面 z 不同（每个面自身是平的）
+    const front = chars[0].quads[0].verts.map((v) => v.z)
+    const back = chars[0].quads[1].verts.map((v) => v.z)
+    expect(Math.max(...front) - Math.min(...front)).toBeCloseTo(0, 6)
+    expect(Math.abs(front[0] - back[0])).toBeGreaterThan(0)
   })
 
   it('没有帽子层时只生成基础层', () => {

@@ -12,6 +12,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -537,6 +538,56 @@ async function main() {
       glbReport.info.totalTriangleCount > 2000,
       'GLB 内含完整几何',
       `${glbReport.info.totalTriangleCount} 个三角面 / ${glbReport.info.drawCallCount} 个绘制调用`,
+    )
+
+    // 用自带软件渲染器把 3D 场景渲染出来，和 2D 画布比对头像位置
+    await new Promise((resolve) => {
+      execFile('node', [path.join(ROOT, 'scripts/render-3d-preview.mjs'), zipPath], (error, stdout, stderr) =>
+        resolve(check(!error, '3D 场景软件渲染成功（正对 +Z 正交）', error ? String(stderr).slice(0, 200) : stdout.trim())),
+      )
+    })
+
+    const headBoxInRender = (file, margin) => {
+      const png = PNG.sync.read(readFileSync(file))
+      let minX = png.width
+      let maxX = -1
+      let minY = png.height
+      let maxY = -1
+      for (let y = 0; y < png.height; y++) {
+        for (let x = 0; x < png.width; x++) {
+          const i = (y * png.width + x) * 4
+          if (png.data[i] > 150 && png.data[i + 2] > 150 && png.data[i + 1] < 90) {
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+          }
+        }
+      }
+      const plateW = png.width - margin * 2
+      const plateH = png.height - margin * 2
+      return {
+        left: (minX - margin) / plateW,
+        top: (minY - margin) / plateH,
+        width: (maxX - minX + 1) / plateW,
+        height: (maxY - minY + 1) / plateH,
+      }
+    }
+
+    const render3dBox = headBoxInRender(path.join(OUT_DIR, 'nameplate-3d-render.png'), 24)
+    const canvasBox = headBoxInRender(path.join(OUT_DIR, 'nameplate-3d-default.png'), 0)
+    const drift = Math.max(
+      Math.abs(render3dBox.left - canvasBox.left),
+      Math.abs(render3dBox.top - canvasBox.top),
+      Math.abs(render3dBox.width - canvasBox.width),
+      Math.abs(render3dBox.height - canvasBox.height),
+    )
+    check(
+      drift < 0.03,
+      '3D 场景里的头像位置/尺寸与 2D 画布一致（归一化偏差 < 3%）',
+      `偏差 ${(drift * 100).toFixed(2)}% · 3D ${JSON.stringify(
+        Object.fromEntries(Object.entries(render3dBox).map(([k, v]) => [k, +v.toFixed(3)])),
+      )}`,
     )
 
     // Blender 脚本：落盘后用 python3 做真实语法检查

@@ -133,10 +133,16 @@ export function shadeFaceTexture(image: RgbaImage, brightness: number): RgbaImag
 /* ------------------------------------------------------------------ */
 
 export interface SceneProjection {
-  /** 2D 画布坐标 + 深度（单位：名牌高度）→ 世界坐标 */
+  /** 2D 画布坐标 + 深度（单位：名牌高度，正数 = 朝向观察者）→ 世界坐标 */
   to3d: (px: number, py: number, depth: number) => Vec3
   /** 世界坐标 → 2D 画布坐标（忽略深度），用于回验几何是否落在名牌范围内 */
   canvasOf: (point: Vec3) => { x: number; y: number }
+  /**
+   * 头像立方体的局部坐标 → 世界坐标的旋转。
+   * 底板是轴对齐的（法线 +Z），2.5D 视角被烘进立方体自身的旋转里，
+   * 所以从 +Z 正交看过去，构图与 2D 导出完全一致，而在 3D 里它就是个正常的立体头像。
+   */
+  rotateHead: (point: Vec3) => Vec3
   /** 头像立方体的半边长度（世界单位） */
   headHalfSize: number
   /** 头像中心的世界坐标 */
@@ -144,8 +150,8 @@ export interface SceneProjection {
 }
 
 /**
- * 建立映射：名牌正面正对相机，高度为 1。
- * 关键量 ppu = 每相机单位多少像素，用来让头像立方体与 2D 视图中的投影尺寸一致。
+ * 世界约定：X 向右、Y 向上、Z 朝向观察者；名牌高度 = 1 个单位。
+ * 名牌正面（底板）落在 Z = 0 平面上。
  */
 export function createSceneProjection(layout: LayoutPlan): SceneProjection {
   const { right, up, direction, halfV } = HEAD3D_PROJECTION
@@ -153,33 +159,40 @@ export function createSceneProjection(layout: LayoutPlan): SceneProjection {
   // 2D 视图里 1 相机单位 = ppu 像素（见 headGeometry 的取景约定）
   const ppu = layout.headBox.height / (2 * halfHeight)
   const norm = ppu / layout.height // 1 相机单位 = norm 个“名牌高度”
-  const width = layout.width / layout.height
-  const halfWidth = width / 2
-  const halfHeightUnits = 0.5
+  const halfWidth = layout.width / layout.height / 2
 
-  const to3d = (px: number, py: number, depth: number): Vec3 => {
-    const u = px / layout.height - halfWidth
-    const v = halfHeightUnits - py / layout.height
-    return {
-      x: right.x * u + up.x * v - direction.x * depth,
-      y: right.y * u + up.y * v - direction.y * depth,
-      z: right.z * u + up.z * v - direction.z * depth,
-    }
-  }
+  const to3d = (px: number, py: number, depth: number): Vec3 => ({
+    x: px / layout.height - halfWidth,
+    y: 0.5 - py / layout.height,
+    z: depth,
+  })
 
   const canvasOf = (point: Vec3): { x: number; y: number } => ({
-    x: (point.x * right.x + point.y * right.y + point.z * right.z + halfWidth) * layout.height,
-    y: (halfHeightUnits - (point.x * up.x + point.y * up.y + point.z * up.z)) * layout.height,
+    x: (point.x + halfWidth) * layout.height,
+    y: (0.5 - point.y) * layout.height,
+  })
+
+  // 立方体局部坐标 → 世界：右乘旋转矩阵 R（行向量为 right / up / direction）。
+  // 注意是“基向量点乘点”(R·p)，不是把点投到基上(p·R)——写成转置会导致投影形状整体错位。
+  const rotateHead = (point: Vec3): Vec3 => ({
+    x: point.x * right.x + point.y * right.y + point.z * right.z,
+    y: point.x * up.x + point.y * up.y + point.z * up.z,
+    z: point.x * direction.x + point.y * direction.y + point.z * direction.z,
   })
 
   const headHalfSize = 0.5 * norm
-  const centre = {
-    x: layout.headBox.x + layout.headBox.width / 2,
-    y: layout.headBox.y + layout.headBox.height / 2,
-  }
-  const headCenter = to3d(centre.x, centre.y, -headHalfSize * 0.9)
+  const centre = to3d(
+    layout.headBox.x + layout.headBox.width / 2,
+    layout.headBox.y + layout.headBox.height / 2,
+    0,
+  )
+  // 旋转后立方体在 z 上的半跨度 = h * (|dx| + |dy| + |dz|)；
+  // 让它的背面刚好嵌进肖像位凹槽，而不是穿透整块底板
+  const sum = Math.abs(direction.x) + Math.abs(direction.y) + Math.abs(direction.z)
+  const zExtent = headHalfSize * sum
+  const headCenter: Vec3 = { x: centre.x, y: centre.y, z: zExtent - 0.012 }
 
-  return { to3d, canvasOf, headHalfSize, headCenter }
+  return { to3d, canvasOf, rotateHead, headHalfSize, headCenter }
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,18 +291,18 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     height: layout.height - layout.frame * 2,
   }
 
-  // ---- 底板 ----
+  // ---- 底板（轴对齐，正面在 Z = 0，向后延伸出厚度）----
   addMaterial({ name: '底板', color: theme.frame.fill })
   parts.push({
     name: '底板',
     group: '名牌',
-    quads: boxQuads(to3d, canvasRect, 0, PLATE_THICKNESS, '底板'),
+    quads: boxQuads(to3d, canvasRect, 0, -PLATE_THICKNESS, '底板'),
   })
 
   // ---- 背景 ----
   if (theme.texture.kind === 'solid') {
     addMaterial({ name: '背景', color: theme.texture.color })
-    parts.push({ name: '背景', group: '名牌', quads: [quadAt(to3d, panel, -RAISED, '背景')] })
+    parts.push({ name: '背景', group: '名牌', quads: [quadAt(to3d, panel, RAISED, '背景')] })
   } else {
     const texelsW = Math.ceil(panel.width / layout.unit)
     const texelsH = Math.ceil(panel.height / layout.unit)
@@ -297,7 +310,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     const file = 'background.png'
     textures[file] = image
     addMaterial({ name: '背景纹理', color: '#ffffff', textureFile: file })
-    parts.push({ name: '背景', group: '名牌', quads: [quadAt(to3d, panel, -RAISED, '背景纹理')] })
+    parts.push({ name: '背景', group: '名牌', quads: [quadAt(to3d, panel, RAISED, '背景纹理')] })
   }
 
   // ---- 外框倒角 ----
@@ -339,7 +352,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
   ]
   for (const item of bevelParts) {
     addMaterial({ name: item.material, color: item.color })
-    parts.push({ name: item.name, group: '外框倒角', quads: [quadAt(to3d, item.rect, -RAISED * 1.5, item.material)] })
+    parts.push({ name: item.name, group: '外框倒角', quads: [quadAt(to3d, item.rect, RAISED * 1.5, item.material)] })
   }
 
   // ---- 分割线 ----
@@ -354,7 +367,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
         quadAt(
           to3d,
           { x: layout.dividerX, y: layout.inner.y, width: half, height: layout.inner.height },
-          -RAISED * 1.5,
+          RAISED * 1.5,
           '分割线-暗',
         ),
       ],
@@ -371,7 +384,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
             width: layout.dividerWidth - half,
             height: layout.inner.height,
           },
-          -RAISED * 1.5,
+          RAISED * 1.5,
           '分割线-亮',
         ),
       ],
@@ -388,7 +401,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     parts.push({
       name: '肖像位-底',
       group: '头像肖像位',
-      quads: [quadAt(to3d, slot, RECESS, '肖像位-底')],
+      quads: [quadAt(to3d, slot, -RECESS, '肖像位-底')],
     })
     const bevels: Array<{ name: string; rect: Rect; material: string }> = [
       {
@@ -416,7 +429,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
       parts.push({
         name: bevel.name,
         group: '头像肖像位',
-        quads: boxQuads(to3d, bevel.rect, RECESS - RAISED, RECESS, bevel.material),
+        quads: boxQuads(to3d, bevel.rect, -RECESS + RAISED, -RECESS, bevel.material),
       })
     }
   }
@@ -448,7 +461,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
             {
               material,
               verts: geometry.corners.map((corner) =>
-                add(projection.headCenter, corner),
+                add(projection.headCenter, projection.rotateHead(corner)),
               ) as [Vec3, Vec3, Vec3, Vec3],
             },
           ],
@@ -551,7 +564,7 @@ function textRunQuads(
   material: string,
 ): SceneQuad[] {
   const rect: Rect = { x: px, y: py, width: Math.max(1, width), height: Math.max(1, height) }
-  return boxQuads(to3d, rect, -TEXT_HEIGHT, 0, material)
+  return boxQuads(to3d, rect, TEXT_HEIGHT, 0, material)
 }
 
 /* ------------------------------------------------------------------ */
@@ -609,7 +622,9 @@ Minecraft 名牌工坊 · 名牌 3D 建场脚本
   集合「头像」      基础层 6 面 + 帽子层 6 面
   集合「ID文字」    每个字符一个对象（点阵逐段挤出，带厚度）
 
-世界坐标：名牌正面正对相机，名牌高度 = 1 个单位；x 向右、y 向上、z 向屏幕内。
+世界坐标：名牌高度 = 1 个单位；x 向右、y 向上、z 朝向观察者，底板在 z = 0 平面。
+2.5D 视角烘在头像立方体自身的旋转里 —— 从 +Z 正交看过去与 2D 预览完全一致，
+但底板、文字、外框都是轴对齐的，在 Blender 里就是一个正常的立体名牌。
 相机与灯光已经按导出时的 2.5D 视角摆好，运行后直接 F12 渲染即可。
 贴图会自动 pack 进 .blend，另存后不丢资源。
 """
@@ -636,7 +651,8 @@ MATERIALS = [
 ${materialsLiteral}
 ]
 
-CAMERA_DIRECTION = ${pyVec({ x: HEAD3D_PROJECTION.direction.x, y: HEAD3D_PROJECTION.direction.y, z: HEAD3D_PROJECTION.direction.z })}
+# 底板轴对齐在 XY 平面，所以相机直接放在 +Z 正上方对着看，
+# 一打开就是和 2D 预览一致的构图；2.5D 视角已经烘进头像立方体的旋转里。
 CAMERA_DISTANCE = 2.2
 CAMERA_ORTHO_SCALE = max(${scene.size.width.toFixed(6)}, 1.0) * 1.15
 
@@ -779,18 +795,13 @@ def setup_viewport():
 
 
 def build_camera_and_light():
-    direction = CAMERA_DIRECTION
     camera_data = bpy.data.cameras.new("名牌相机")
     camera_data.type = "ORTHO"
     camera_data.ortho_scale = CAMERA_ORTHO_SCALE
     camera = bpy.data.objects.new("名牌相机", camera_data)
-    camera.location = (
-        direction[0] * CAMERA_DISTANCE,
-        direction[1] * CAMERA_DISTANCE,
-        direction[2] * CAMERA_DISTANCE,
-    )
+    camera.location = (0.0, 0.0, CAMERA_DISTANCE)
     camera.rotation_mode = "QUATERNION"
-    camera.rotation_quaternion = (-camera.location).to_track_quat("-Z", "Y")
+    camera.rotation_quaternion = (0.0, 0.0, 0.0, 1.0)  # 正对 -Z 看
     bpy.context.scene.collection.objects.link(camera)
     bpy.context.scene.camera = camera
 
@@ -879,11 +890,13 @@ export function sceneToObj(scene: Nameplate3DScene): { obj: string; mtl: string 
       for (const vertex of quad.verts) {
         obj.push(`v ${vertex.x.toFixed(6)} ${vertex.y.toFixed(6)} ${vertex.z.toFixed(6)}`)
       }
+      // OBJ 的纹理原点在左下角（v 向上），而贴图行序是自上而下，所以 v 必须翻转。
+      // 漏掉这一步，导入 Blender 后整张脸会上下颠倒。
       for (const uv of [
-        [0, 0],
-        [1, 0],
-        [1, 1],
         [0, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
       ]) {
         obj.push(`vt ${uv[0]} ${uv[1]}`)
       }
@@ -1067,7 +1080,9 @@ function buildGltfModel(
           positions.push(vertex.x, vertex.y, vertex.z)
           normals.push(nx, ny, nz)
         }
-        uvs.push(0, 1, 1, 1, 1, 0, 0, 0)
+        // glTF 的 UV 原点在左上、v 向下（three.js 载入 glTF 时正是 flipY=false），
+        // 与贴图行序一致，四个角按 (0,0)(1,0)(1,1)(0,1) 直接对应即可
+        uvs.push(0, 0, 1, 0, 1, 1, 0, 1)
         const base = quadIndex * 4
         indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
       })
@@ -1181,7 +1196,9 @@ const README = `Minecraft 名牌工坊 · 名牌 3D 模型包
   集合「ID文字」
     每个字符一个对象（点阵逐段挤出，带真实厚度）
 
-世界坐标：名牌正面正对相机，名牌高度 = 1 个单位；x 向右、y 向上、z 向屏幕内。
+世界坐标：名牌高度 = 1 个单位；x 向右、y 向上、z 朝向观察者，底板在 z = 0 平面。
+2.5D 视角烘在头像立方体自身的旋转里 —— 从 +Z 正交看过去与 2D 预览完全一致，
+但底板、文字、外框都是轴对齐的，在 Blender 里就是一个正常的立体名牌。
 相机与灯光已按导出时的 2.5D 视角摆好。
 
 文件说明
