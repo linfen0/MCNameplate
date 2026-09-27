@@ -142,6 +142,24 @@ function makeLightGoldTexture() {
   return PNG.sync.write(png)
 }
 
+/** 把一张贴图喂给上传框（DataTransfer 派发 change，绕过隐藏 input 的限制） */
+async function uploadTexture(page, buffer, name) {
+  await page.evaluate(
+    ({ base64, name: fileName }) => {
+      const input = document.querySelector('[data-testid="texture-input"]')
+      if (!input) throw new Error('texture input not found')
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const file = new File([bytes], fileName, { type: 'image/png' })
+      const transfer = new DataTransfer()
+      transfer.items.add(file)
+      input.files = transfer.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    },
+    { base64: buffer.toString('base64'), name },
+  )
+  await page.waitForTimeout(900)
+}
+
 /* ------------------------------------------------------------------ */
 /* 2. 浏览器内像素分析                                                  */
 /* ------------------------------------------------------------------ */
@@ -766,20 +784,7 @@ async function main() {
     // ---- 上传方块贴图 → 程序化提取配色 ----
     const textureBuffer = makeBlockTexture()
     await writeFile(path.join(OUT_DIR, 'test-block.png'), textureBuffer)
-    await page.evaluate(
-      ({ base64 }) => {
-        const input = document.querySelector('[data-testid="texture-input"]')
-        if (!input) throw new Error('texture input not found')
-        const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
-        const file = new File([bytes], 'mod_block.png', { type: 'image/png' })
-        const transfer = new DataTransfer()
-        transfer.items.add(file)
-        input.files = transfer.files
-        input.dispatchEvent(new Event('change', { bubbles: true }))
-      },
-      { base64: textureBuffer.toString('base64') },
-    )
-    await page.waitForTimeout(900)
+    await uploadTexture(page, textureBuffer, 'mod_block.png')
 
     const textureUi = await page.evaluate(() => document.body.innerText)
     check(textureUi.includes('程序提取的配色'), '界面出现「程序提取的配色」')
@@ -842,85 +847,31 @@ async function main() {
       '最外圈就是贴图自带边框（金色），没有被名牌外框盖掉',
       `左边缘 rgb(${edge.left.join(',')}) · 上边缘 rgb(${edge.top.join(',')})`,
     )
-    // 独立复算文字对比度：在 ID 区做颜色直方图，找出成片的文字色与它紧邻的背景色，按 WCAG 公式算。
-    // 不用“接近纯白 / 纯黑”的判据 —— 现在的文字色是同族中性色（如 #F0EDE6），本来就到不了 255。
-    const contrast = await page.evaluate(() => {
-      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
-      const x0 = Math.floor(canvas.width * 0.6)
-      const w = canvas.width - x0
-      const h = canvas.height
-      const { data } = canvas.getContext('2d').getImageData(x0, 0, w, h)
-      const lumOf = (r, g, b) => {
-        const lin = [r, g, b].map((v) => {
-          const c = v / 255
-          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-        })
-        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
-      }
-      const hist = new Map()
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4
-          const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
-          hist.set(key, (hist.get(key) ?? 0) + 1)
-        }
-      }
-      const entries = [...hist.entries()]
-        .map(([key, count]) => ({ key, count, rgb: [(key >> 16) & 255, (key >> 8) & 255, key & 255] }))
-        .map((item) => ({ ...item, lum: lumOf(...item.rgb) }))
-        .sort((a, b) => b.count - a.count)
-      const background = entries[0]
-      // 文字色：成片出现、且与主色亮度拉开距离的那个颜色
-      const text = entries.find((item) => item.count >= 100 && Math.abs(item.lum - background.lum) > 0.25)
-      if (!text) return null
-
-      // 文字“紧邻”的背景：统计文字像素四周 2 / 4 像素处的颜色众数
-      const near = new Map()
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4
-          const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
-          if (key === text.key) continue
-          let touches = false
-          for (const d of [2, 4]) {
-            for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
-              const nx = x + dx
-              const ny = y + dy
-              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
-              const j = (ny * w + nx) * 4
-              if (((data[j] << 16) | (data[j + 1] << 8) | data[j + 2]) === text.key) touches = true
-            }
-          }
-          if (touches) near.set(key, (near.get(key) ?? 0) + 1)
-        }
-      }
-      const neighbor = [...near.entries()]
-        .map(([key, count]) => ({ count, rgb: [(key >> 16) & 255, (key >> 8) & 255, key & 255] }))
-        .sort((a, b) => b.count - a.count)[0]
-      if (!neighbor) return null
-      const lf = text.lum
-      const lb = lumOf(...neighbor.rgb)
-      return {
-        ratio: (Math.max(lf, lb) + 0.05) / (Math.min(lf, lb) + 0.05),
-        fill: text.rgb,
-        background: neighbor.rgb,
-        fillCount: text.count,
-      }
-    })
+    // 文字配色：读应用解析出来的方案，再回到像素里独立验证
+    const textStyle = await page.evaluate(readTextStyle)
+    const measured = await page.evaluate(sampleTextColors, textStyle)
     check(
-      contrast !== null && contrast.ratio >= 4.5,
-      '文字与背景的对比度达到 WCAG AA（4.5:1）',
-      contrast
-        ? `实测 ${contrast.ratio.toFixed(2)}:1（文字 rgb(${contrast.fill.join(',')}) / 紧邻背景 rgb(${contrast.background.join(',')})）`
-        : '未找到成片的文字像素',
+      measured.fillCount >= 200,
+      '解析出的文字色在画布上确实成片画出来了',
+      `${textStyle.fill} · ${measured.fillCount} px`,
     )
-    // 纯白 / 纯黑已经不再作为兜底：画面上的文字色应当是“同族中性色”
     check(
-      contrast !== null &&
-        !(contrast.fill[0] === 255 && contrast.fill[1] === 255 && contrast.fill[2] === 255) &&
-        !(contrast.fill[0] === 0 && contrast.fill[1] === 0 && contrast.fill[2] === 0),
-      '画布上的文字色不是纯白 / 纯黑（改用底色同族的中性色）',
-      contrast ? `实测文字 rgb(${contrast.fill.join(',')})` : '未找到文字像素',
+      textStyle.outline ? measured.fillToOutline >= 4.5 : measured.fillToBackground >= 4.5,
+      '文字与紧挨着它的那一层达到 WCAG AA（4.5:1）',
+      textStyle.outline
+        ? `文字 ${textStyle.fill} ↔ 描边 ${textStyle.outline} = ${measured.fillToOutline.toFixed(2)}:1`
+        : `文字 ${textStyle.fill} ↔ 底纹 = ${measured.fillToBackground.toFixed(2)}:1`,
+    )
+    check(
+      measured.fillLum > measured.backgroundLum,
+      'ID 是亮字：文字比底纹更亮（没有把名字往深的压）',
+      `文字亮度 ${measured.fillLum.toFixed(3)} > 底纹 ${measured.backgroundLum.toFixed(3)}`,
+    )
+    check(
+      !['#ffffff', '#000000'].includes(textStyle.fill) &&
+        !['#ffffff', '#000000'].includes(textStyle.outline),
+      '文字 / 描边都不是纯白 / 纯黑（改用底色同族的颜色）',
+      `${textStyle.fill} / ${textStyle.outline || '无描边'}`,
     )
 
     const contrastLine = await page.evaluate(() => {
@@ -933,16 +884,12 @@ async function main() {
       '文字对比度达标，且没有动用压暗底（优先提亮文字）',
       contrastLine,
     )
-    // 界面报告的取色要和画布上真实画出来的那个颜色一致（避免“说的和画的不一样”）
+    // 界面报告的文字色要和画布 dataset 里的一致（避免“说的和画的不一样”）
     const reportedFill = /文字色\s*(#[0-9a-f]{6})/.exec(contrastLine)?.[1] ?? null
-    const detectedFill =
-      contrast === null
-        ? null
-        : `#${contrast.fill.map((v) => v.toString(16).padStart(2, '0')).join('')}`
     check(
-      reportedFill !== null && reportedFill === detectedFill,
-      '界面报告的文字色 = 画布上实测的文字色',
-      `报告 ${reportedFill} · 实测 ${detectedFill}`,
+      reportedFill !== null && reportedFill === textStyle.fill,
+      '界面报告的文字色 = 画布上解析出的文字色',
+      `报告 ${reportedFill} · 画布 ${textStyle.fill}`,
     )
     const harmonyLine = await page.evaluate(() => {
       const text = document.body.innerText
@@ -957,6 +904,40 @@ async function main() {
 
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
+
+    // ---- 浅金色花底：ID 绝不能又被压成黑字（用户实测的那张图就是这个场景）----
+    const lightGold = makeLightGoldTexture()
+    await writeFile(path.join(OUT_DIR, 'test-block-light-gold.png'), lightGold)
+    await uploadTexture(page, lightGold, 'light_gold.png')
+    const goldStyle = await page.evaluate(readTextStyle)
+    check(
+      goldStyle.route === 'halo' && /^#[0-9a-f]{6}$/.test(goldStyle.outline),
+      '浅色花底改用「亮字 + 同族描边」，而不是把 ID 压黑',
+      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline}`,
+    )
+    check(
+      goldStyle.contrast >= 4.5,
+      '亮字 + 描边同样达到 WCAG AA（文字 ↔ 描边）',
+      `${goldStyle.contrast.toFixed(2)}:1`,
+    )
+    const goldMeasured = await page.evaluate(sampleTextColors, goldStyle)
+    check(
+      goldMeasured.fillCount >= 200 && goldMeasured.outlineCount >= 200,
+      '文字与描边都在画布上成片出现',
+      `文字 ${goldMeasured.fillCount} px · 描边 ${goldMeasured.outlineCount} px`,
+    )
+    check(
+      goldMeasured.fillToOutline >= 4.5,
+      '像素级复算：文字 ↔ 描边 ≥ 4.5:1',
+      `${goldMeasured.fillToOutline.toFixed(2)}:1`,
+    )
+    check(
+      goldMeasured.fillLum > goldMeasured.backgroundLum + 0.05,
+      '像素级复算：ID 比底纹更亮（亮字，不是压在浅底上的黑字）',
+      `文字亮度 ${goldMeasured.fillLum.toFixed(3)} · 底纹 ${goldMeasured.backgroundLum.toFixed(3)}`,
+    )
+    await exportCanvas(page, 'nameplate-light-gold.png')
+    await page.screenshot({ path: path.join(OUT_DIR, 'studio-light-gold.png'), fullPage: true })
 
     // ---- 说明页 ----
     await page.goto(`${BASE_URL}guide`, { waitUntil: 'networkidle' })

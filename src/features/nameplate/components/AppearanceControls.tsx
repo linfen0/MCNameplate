@@ -109,7 +109,7 @@ export function AppearanceControls({ config, patch, library }: AppearanceControl
           />
           <PixelToggle
             label="文字区压暗"
-            hint="纹理底色上更易读"
+            hint="可选的装饰层；文字可读性已由描边保证"
             checked={config.textBackdrop}
             onChange={(checked) => patch({ textBackdrop: checked })}
           />

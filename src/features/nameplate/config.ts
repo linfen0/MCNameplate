@@ -145,7 +145,9 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   uppercase: true,
   shadow: true,
   showDivider: true,
-  textBackdrop: true,
+  // 文字可读性现在由「亮字 + 同族描边」保证（见 lib/textPlan），
+  // 这层装饰性压暗底默认关掉：底纹保持原样更和谐，需要时用户自己开
+  textBackdrop: false,
   showGuides: false,
 }
 
