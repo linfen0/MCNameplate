@@ -29,6 +29,12 @@ export interface Theme {
   textured: boolean
   /** 自定义纹理主题下由贴图提取出的配色（内置主题为空） */
   palette?: ExtractedPalette
+  /**
+   * 边框是否由贴图自己提供。
+   * 九宫格 / 整张拉伸时贴图铺满整块名牌，它自带的边框就是名牌边框，
+   * 这时不能再画一层名牌外框与倒角 —— 会把用户的边框盖掉。
+   */
+  borderFromTexture?: boolean
 }
 
 const soil: Palette = { base: '#6b4a2a', light: '#7d5a34', dark: '#4f3620' }

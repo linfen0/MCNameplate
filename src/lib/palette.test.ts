@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from './raster'
-import { relativeLuminance } from './color'
+import { relativeLuminance, rgbaToHex } from './color'
 import { buildThemeFromTexture, extractPalette, paletteToCssGradient } from './palette'
 import type { RgbaImage } from './types'
 
@@ -124,7 +124,7 @@ describe('buildThemeFromTexture', () => {
     // 全是中间灰：亮部/暗部卡与底色对比不足，必须退回黑或白保证可读
     const image = solid(16, 16, [128, 128, 128, 255])
     const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
-    expect(['#ffffff', '#1b1b1b']).toContain(theme.text.fill)
+    expect(['#ffffff', '#151515']).toContain(theme.text.fill)
   })
 
   it('无论什么贴图，文字与底色的对比度都达到 WCAG AA（4.5:1）', () => {
@@ -138,10 +138,11 @@ describe('buildThemeFromTexture', () => {
     ]
     for (const color of samples) {
       const theme = buildThemeFromTexture(solid(16, 16, color), { fillMode: 'palette' })
+      const background = rgbaToHex(color)
       const ratio =
-        (Math.max(relativeLuminance(theme.text.fill), relativeLuminance(color)) + 0.05) /
-        (Math.min(relativeLuminance(theme.text.fill), relativeLuminance(color)) + 0.05)
-      expect(ratio, `底色 ${color} 的文字对比度`).toBeGreaterThanOrEqual(4.5)
+        (Math.max(relativeLuminance(theme.text.fill), relativeLuminance(background)) + 0.05) /
+        (Math.min(relativeLuminance(theme.text.fill), relativeLuminance(background)) + 0.05)
+      expect(ratio, `底色 ${background} 的文字对比度`).toBeGreaterThanOrEqual(4.5)
     }
   })
 

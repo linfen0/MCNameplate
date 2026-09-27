@@ -15,17 +15,16 @@ export function drawBackground(
   plan: LayoutPlan,
   theme: Theme,
   seed: number,
+  options: { coverCanvas?: boolean } = {},
 ): void {
   const { width, height, frame, unit } = plan
   ctx.fillStyle = theme.frame.fill
   ctx.fillRect(0, 0, width, height)
 
-  const panel: Rect = {
-    x: frame,
-    y: frame,
-    width: width - frame * 2,
-    height: height - frame * 2,
-  }
+  // 贴图自带边框时：铺满整块画布，不给自己再留一圈外框
+  const panel: Rect = options.coverCanvas
+    ? { x: 0, y: 0, width, height }
+    : { x: frame, y: frame, width: width - frame * 2, height: height - frame * 2 }
   if (theme.texture.kind === 'solid') {
     ctx.fillStyle = theme.texture.color
     ctx.fillRect(panel.x, panel.y, panel.width, panel.height)

@@ -68,8 +68,10 @@ export function renderNameplate(
   ctx.imageSmoothingEnabled = false
   ctx.globalAlpha = 1
 
-  drawBackground(ctx, layout, theme, TEXTURE_SEED)
-  drawBevel(ctx, layout, theme)
+  // 贴图自带边框时铺满整块名牌，并且不再画名牌外框/倒角（否则会盖掉用户的边框）
+  const borderFromTexture = theme.borderFromTexture === true
+  drawBackground(ctx, layout, theme, TEXTURE_SEED, { coverCanvas: borderFromTexture })
+  if (!borderFromTexture) drawBevel(ctx, layout, theme)
   drawDivider(ctx, layout, theme)
   drawAvatarSlot(ctx, layout, theme)
   drawTextBackdrop(ctx, layout, theme, config.textBackdrop)

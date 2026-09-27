@@ -231,6 +231,8 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     guide: hasContrast(palette.accent, palette.base) ? palette.accent : '#ff4fd8',
     textured: true,
     palette,
+    // 贴图铺满整块名牌时，边框由贴图自带（九宫格正是为此而生）
+    borderFromTexture: mode === 'nine-slice' || mode === 'stretch',
   }
 }
 
@@ -261,7 +263,11 @@ export function pickTextColor(
   const ranked = [...candidates].sort((a, b) => contrastRatio(b, background) - contrastRatio(a, background))
   const best = ranked[0]
   if (best && contrastRatio(best, background) >= 4.5) return best
-  return lightBackground ? '#1b1b1b' : '#ffffff'
+  // 兜底也要比一比：中灰底上白字对比度只有 3.95，黑字反而有 5.3
+  const fallback = lightBackground ? ['#151515', '#ffffff'] : ['#ffffff', '#151515']
+  return contrastRatio(fallback[0], background) >= contrastRatio(fallback[1], background)
+    ? fallback[0]
+    : fallback[1]
 }
 
 function hasContrast(color: string, background: string): boolean {
