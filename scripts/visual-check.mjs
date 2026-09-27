@@ -806,6 +806,17 @@ async function main() {
         : '未找到文字像素',
     )
 
+    const contrastLine = await page.evaluate(() => {
+      const text = document.body.innerText
+      const index = text.indexOf('文字色')
+      return index >= 0 ? text.slice(index, index + 80).replace(/\n/g, ' ') : ''
+    })
+    check(
+      contrastLine.includes('WCAG AA ✓'),
+      '文字对比度达标，且没有动用压暗底（优先提亮文字）',
+      contrastLine,
+    )
+
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
 

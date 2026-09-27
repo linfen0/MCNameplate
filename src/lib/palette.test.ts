@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from './raster'
 import { relativeLuminance, rgbaToHex } from './color'
-import { buildThemeFromTexture, extractPalette, paletteToCssGradient } from './palette'
+import {
+  buildTextCandidates,
+  buildThemeFromTexture,
+  chooseTextColor,
+  extractPalette,
+  paletteToCssGradient,
+} from './palette'
 import type { RgbaImage } from './types'
 
 function solid(width: number, height: number, color: [number, number, number, number]): RgbaImage {
@@ -200,6 +206,51 @@ describe('buildThemeFromTexture', () => {
     const theme = buildThemeFromTexture(blockTexture(), { name: '石头方块' })
     expect(theme.name).toBe('石头方块')
     expect(theme.description).toContain('石头方块')
+  })
+})
+
+describe('文字色优先级：先提亮文字，最后才动底', () => {
+  const DARK_RANGE = { low: 0.03, high: 0.12 } // 深色贴图（含少量亮部）
+
+  it('色卡原色就达标时，直接用色卡（distance = 0）', () => {
+    const chosen = chooseTextColor(buildTextCandidates(['#e8e8e8'], false), DARK_RANGE, 4.5)
+    expect(chosen.distance).toBe(0)
+    expect(chosen.color).toBe('#e8e8e8')
+    expect(chosen.meetsStandard).toBe(true)
+  })
+
+  it('色卡原色不够时，先往白推（提亮文字），而不是去动底', () => {
+    // #8a8a8a 在深底上对比度不足；系统应当把它往白推，而不是要求压暗背景
+    const chosen = chooseTextColor(buildTextCandidates(['#8a8a8a'], false), DARK_RANGE, 4.5)
+    expect(chosen.meetsStandard).toBe(true)
+    expect(chosen.distance).toBeGreaterThan(0)
+    expect(relativeLuminance(chosen.color)).toBeGreaterThan(relativeLuminance('#8a8a8a'))
+  })
+
+  it('保留色相：提亮后的颜色仍偏向原色卡色', () => {
+    const chosen = chooseTextColor(buildTextCandidates(['#d9a227'], false), DARK_RANGE, 4.5)
+    // 金色提亮后仍是暖色（红 > 蓝），不是纯白
+    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(chosen.color.slice(i, i + 2), 16))
+    expect(r).toBeGreaterThan(b)
+    expect(g).toBeGreaterThan(b)
+  })
+
+  it('浅色贴图往黑推（同样是改文字，不是改底）', () => {
+    const chosen = chooseTextColor(buildTextCandidates(['#9a9a9a'], true), { low: 0.7, high: 0.95 }, 4.5)
+    expect(chosen.meetsStandard).toBe(true)
+    expect(relativeLuminance(chosen.color)).toBeLessThan(relativeLuminance('#9a9a9a'))
+  })
+
+  it('连纯白/纯黑都够不着时如实报告未达标（交给上层决定要不要动底）', () => {
+    // 亮度区间跨越太大：亮区要黑字、暗区要白字，任何单色都无法同时满足
+    const chosen = chooseTextColor(buildTextCandidates(['#808080'], false), { low: 0.02, high: 0.7 }, 4.5)
+    expect(chosen.meetsStandard).toBe(false)
+    expect(chosen.contrast).toBeGreaterThan(1)
+  })
+
+  it('候选里不会有重复色', () => {
+    const list = buildTextCandidates(['#ffffff', '#ffffff'], false)
+    expect(new Set(list.map((item) => item.color)).size).toBe(list.length)
   })
 })
 
