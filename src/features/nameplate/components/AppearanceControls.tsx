@@ -2,18 +2,25 @@ import { ChipRow, Field, PixelChip, PixelToggle } from '../../../components/pixe
 import { cx } from '../../../lib/cx'
 import { PIXEL_FONTS } from '../../../lib/pixelFont'
 import { THEMES } from '../../../lib/themes'
+import type { TextureLibraryState } from '../../../hooks/useTextureLibrary'
 import type { NameplateConfig } from '../config'
+import { CUSTOM_THEME_ID } from '../theme'
+import { TextureThemePanel } from './TextureThemePanel'
 
 export interface AppearanceControlsProps {
   config: NameplateConfig
   patch: (changes: Partial<NameplateConfig>) => void
+  library: TextureLibraryState
 }
 
 /** 底色主题、ID 字体与文字样式开关 */
-export function AppearanceControls({ config, patch }: AppearanceControlsProps) {
+export function AppearanceControls({ config, patch, library }: AppearanceControlsProps) {
   return (
     <div className="space-y-5">
-      <Field label="底色主题" hint="每个主题的方块贴图都是程序化生成的，无任何外部素材。">
+      <Field
+        label="底色主题"
+        hint="内置主题都是程序化生成的；第 7 项「自定义纹理」可以上传任意方块贴图（含 Mod），配色由程序从贴图里提取。"
+      >
         <ChipRow>
           {THEMES.map((theme) => (
             <PixelChip
@@ -36,8 +43,35 @@ export function AppearanceControls({ config, patch }: AppearanceControlsProps) {
               </span>
             </PixelChip>
           ))}
+          <PixelChip
+            active={config.themeId === CUSTOM_THEME_ID}
+            onClick={() => patch({ themeId: CUSTOM_THEME_ID })}
+            disabled={!config.customTexture}
+            title={
+              config.customTexture
+                ? `使用「${config.customTexture.name}」提取的配色`
+                : '先在下面上传一张方块贴图'
+            }
+          >
+            <span className="flex items-center gap-2">
+              {config.customTexture ? (
+                <span className="flex">
+                  {config.customTexture.palette.dominant.slice(0, 3).map((color) => (
+                    <span
+                      key={color}
+                      className="block h-3 w-3 border border-black"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </span>
+              ) : null}
+              自定义纹理
+            </span>
+          </PixelChip>
         </ChipRow>
       </Field>
+
+      <TextureThemePanel config={config} patch={patch} library={library} />
 
       <Field label="ID 字体" hint="两种字体都是 SIL OFL 开源许可，已随项目本地托管。">
         <ChipRow>

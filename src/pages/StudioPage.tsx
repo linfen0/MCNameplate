@@ -11,9 +11,11 @@ import { useImagePaste } from '../hooks/useImagePaste'
 import { useNameplateConfig } from '../hooks/useNameplateConfig'
 import { useNameplateRenderer } from '../hooks/useNameplateRenderer'
 import { useSkinUpload } from '../hooks/useSkinUpload'
+import { useTextureLibrary } from '../hooks/useTextureLibrary'
 
 export function StudioPage() {
   const { skin, loading, error, loadFile, clear } = useSkinUpload()
+  const library = useTextureLibrary()
   const { config, patch, reset } = useNameplateConfig()
   const { canvasRef, result, webFontsReady } = useNameplateRenderer(skin, config)
   const [revision, setRevision] = useState(0)
@@ -81,7 +83,7 @@ export function StudioPage() {
         </Panel>
 
         <Panel title="4 · 外观">
-          <AppearanceControls config={config} patch={patch} />
+          <AppearanceControls config={config} patch={patch} library={library} />
         </Panel>
       </div>
     </div>

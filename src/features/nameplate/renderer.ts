@@ -9,7 +9,7 @@
 import { isGoldenRatio, summarizeBlocks, type RatioSummary } from '../../lib/golden'
 import { getPixelFont } from '../../lib/pixelFont'
 import { extractHead, extractHeadCube } from '../../lib/skin'
-import { getTheme } from '../../lib/themes'
+import { resolveTheme } from './theme'
 import type { ParsedSkin } from '../../lib/types'
 import { TEXTURE_SEED, type NameplateConfig } from './config'
 import { drawFlatHead } from './draw/head'
@@ -57,7 +57,7 @@ export function renderNameplate(
     avatarFill: config.avatarFill,
     showDivider: config.showDivider,
   })
-  const theme = getTheme(config.themeId)
+  const theme = resolveTheme(config)
   const font = getPixelFont(config.fontId)
 
   canvas.width = layout.width

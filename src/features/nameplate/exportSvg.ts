@@ -23,7 +23,7 @@ import {
 } from '../../lib/pixelFont'
 import { extractHead, extractHeadCube } from '../../lib/skin'
 import { getPanelTexture } from '../../lib/textures'
-import { getTheme, type Theme } from '../../lib/themes'
+import type { Theme } from '../../lib/themes'
 import type { ParsedSkin, RgbaImage } from '../../lib/types'
 import { TEXTURE_SEED, type NameplateConfig } from './config'
 import { renderHead3D } from './draw/head3d'
@@ -38,6 +38,7 @@ import {
 import { computeNameplateLayout, type LayoutPlan } from './layout'
 import { resolveAspect } from './resolve'
 import { layoutIdText } from './textLayout'
+import { resolveTheme } from './theme'
 
 /* ------------------------------------------------------------------ */
 /* 纯几何 → SVG 片段                                                    */
@@ -404,7 +405,7 @@ export function buildNameplateSvg(skin: ParsedSkin | null, config: NameplateConf
     avatarFill: config.avatarFill,
     showDivider: config.showDivider,
   })
-  const theme = getTheme(config.themeId)
+  const theme = resolveTheme(config)
   const font = getPixelFont(config.fontId)
 
   // 文字（与画布渲染、3D 导出共用同一份排版）

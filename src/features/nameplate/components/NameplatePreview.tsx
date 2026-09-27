@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { cx } from '../../../lib/cx'
-import { getTheme } from '../../../lib/themes'
+import { resolveTheme } from '../theme'
 import type { NameplateConfig } from '../config'
 import { resolveOutputSize } from '../resolve'
 import type { RenderResult } from '../renderer'
@@ -30,7 +30,7 @@ export function NameplatePreview({
   hasSkin,
   webFontsReady,
 }: NameplatePreviewProps) {
-  const theme = getTheme(config.themeId)
+  const theme = resolveTheme(config)
   const size = resolveOutputSize(config)
 
   return (

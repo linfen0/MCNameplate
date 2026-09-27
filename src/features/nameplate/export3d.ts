@@ -29,7 +29,7 @@ import { getPixelFont, measureText } from '../../lib/pixelFont'
 import { cloneImage } from '../../lib/raster'
 import { extractHeadCube, type HeadCube } from '../../lib/skin'
 import { getPanelTexture } from '../../lib/textures'
-import { getTheme, type Theme } from '../../lib/themes'
+import type { Theme } from '../../lib/themes'
 import type { ParsedSkin, Rect, RgbaImage } from '../../lib/types'
 import { TEXTURE_SEED, type NameplateConfig } from './config'
 import {
@@ -42,6 +42,7 @@ import {
 } from './headGeometry'
 import { resolveAspect } from './resolve'
 import { layoutIdText } from './textLayout'
+import { resolveTheme } from './theme'
 import { computeNameplateLayout, type LayoutPlan } from './layout'
 
 /* ------------------------------------------------------------------ */
@@ -1271,7 +1272,7 @@ export function buildNameplateModelZip(skin: ParsedSkin | null, config: Nameplat
     avatarFill: config.avatarFill,
     showDivider: config.showDivider,
   })
-  const theme = getTheme(config.themeId)
+  const theme = resolveTheme(config)
   const font = getPixelFont(config.fontId)
   const textLayout = layoutIdText(font, theme, config, layout.idBox)
   const usable = skin !== null && !skin.issues.some((issue) => issue.level === 'error')

@@ -4,6 +4,7 @@ import { GOLDEN_MAJOR, GOLDEN_MINOR, PHI } from '../../lib/golden'
 import { DEFAULT_FONT_ID } from '../../lib/pixelFont'
 import { DEFAULT_THEME_ID } from '../../lib/themes'
 import type { AvatarSide, HeadStyle, SplitMode } from './layout'
+import { type CustomTexture } from './theme'
 
 /** 宽高比可以是一个固定值，也可以交给布局根据 ID 长度自适应 */
 export type AspectSetting = number | 'auto'
@@ -28,6 +29,10 @@ export interface NameplateConfig {
   /** 头像在肖像位中的填充比例 */
   avatarFill: number
   themeId: string
+  /** 用户上传的方块贴图（themeId === 'custom' 时生效，支持 Mod 贴图） */
+  customTexture: CustomTexture | null
+  /** 自定义贴图里每个纹理像素占几个基准网格单位（越大方块越大） */
+  textureTexelScale: number
   fontId: string
   uppercase: boolean
   shadow: boolean
@@ -127,6 +132,8 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   headStyle: 'iso',
   avatarFill: 0.92,
   themeId: DEFAULT_THEME_ID,
+  customTexture: null,
+  textureTexelScale: 1,
   fontId: DEFAULT_FONT_ID,
   uppercase: true,
   shadow: true,
