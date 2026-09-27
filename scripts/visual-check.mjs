@@ -943,7 +943,9 @@ async function main() {
     // 导出也要带上同一圈描边：SVG 与 3D 里的文字颜色必须与预览一致
     const svgDownload = page.waitForEvent('download')
     await page.getByRole('button', { name: '下载 SVG' }).click()
-    const goldSvg = await readFile(await (await svgDownload).path(), 'utf8')
+    const goldSvgPath = path.join(OUT_DIR, 'nameplate-light-gold.svg')
+    await (await svgDownload).saveAs(goldSvgPath)
+    const goldSvg = await readFile(goldSvgPath, 'utf8')
     check(
       goldSvg.includes(`fill="${goldStyle.fill}"`) && goldSvg.includes(`fill="${goldStyle.outline}"`),
       'SVG 导出带上同族描边（文字色与描边与预览一致）',
@@ -958,6 +960,14 @@ async function main() {
       '3D 导出把描边做成独立材质层',
       `材质 ${[...new Set((goldObj.match(/usemtl .+/g) ?? []))].join(' / ')}`,
     )
+    // 把带描边的 SVG 反过来渲染，留档人工复核
+    const goldSvgPage = await browser.newPage({ viewport: { width: 1300, height: 420 } })
+    await goldSvgPage.setContent(
+      `<body style="margin:0;background:#222"><img style="display:block;width:1280px;image-rendering:pixelated" src="data:image/svg+xml;base64,${Buffer.from(goldSvg).toString('base64')}"></body>`,
+    )
+    await goldSvgPage.waitForTimeout(400)
+    await goldSvgPage.screenshot({ path: path.join(OUT_DIR, 'nameplate-light-gold-from-svg.png') })
+    await goldSvgPage.close()
 
     // ---- 说明页 ----
     await page.goto(`${BASE_URL}guide`, { waitUntil: 'networkidle' })
