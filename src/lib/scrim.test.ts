@@ -37,8 +37,8 @@ describe('scrim（文字底衬）', () => {
     expect(plan.text).not.toBe('#ffffff')
   })
 
-  it('救不回来时铺满整块，并如实报告达标情况', () => {
-    // 只有一张中灰候选：垫浅了不达标，靠铺满整块把背景压成均匀一色才达标
+  it('最重的一档仍不达标时如实报告（上层会改用同族暗色文字）', () => {
+    // 只有一张中灰候选、阈值又是正文 4.5:1：垫到最重也够不着
     const candidates = [{ color: '#808080', distance: 0 }]
     const plan = chooseScrim({
       tint: '#808080',
@@ -46,8 +46,20 @@ describe('scrim（文字底衬）', () => {
       candidates,
       minContrast: 4.5,
     })
-    expect(plan.alpha).toBe(1)
-    expect(plan.meetsStandard).toBe(true)
+    expect(plan.alpha).toBe(0.86)
+    expect(plan.meetsStandard).toBe(false)
+  })
+
+  it('maxAlpha 限制最重强度：轻的那一轮够不着就交给上层换办法', () => {
+    const candidates = [{ color: '#808080', distance: 0 }]
+    const plan = chooseScrim({
+      tint: '#808080',
+      background: { dark: '#7f7f7f', light: '#818181', lightBackground: false },
+      candidates,
+      minContrast: 3,
+      maxAlpha: 0.58,
+    })
+    expect(plan.alpha).toBeLessThanOrEqual(0.58)
   })
 
   it('用户手动那层压暗底用的是同一支同族色（与画布 / SVG 一致）', () => {

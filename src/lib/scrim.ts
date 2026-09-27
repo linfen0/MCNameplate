@@ -90,6 +90,8 @@ export interface ScrimInput {
   /** 与文字色共用同一份候选，保证垫层之后仍优先用色卡里的颜色 */
   candidates: TextCandidate[]
   minContrast: number
+  /** 允许的最重强度：先用轻的试，轻的救不了就交给上层换别的办法（默认 0.86） */
+  maxAlpha?: number
 }
 
 /** sRGB 空间按 alpha 叠加（与 canvas 的 globalAlpha 行为一致，不做线性化） */
@@ -102,11 +104,11 @@ function over(background: string, color: string, alpha: number): number {
  * 下的文字对比度达标就停 —— 尽量少盖住用户贴图。
  */
 export function chooseScrim(input: ScrimInput): ScrimPlan {
-  const { tint, background, candidates, minContrast } = input
+  const { tint, background, candidates, minContrast, maxAlpha = 0.86 } = input
   const direction: ToneDirection = background.lightBackground ? 'light' : 'dark'
   const color = scrimTone(tint, direction)
   let plan: ScrimPlan | null = null
-  for (const alpha of SCRIM_ALPHAS) {
+  for (const alpha of SCRIM_ALPHAS.filter((step) => step <= maxAlpha)) {
     const choice: TextChoice = chooseTextColor(
       candidates,
       { low: over(background.dark, color, alpha), high: over(background.light, color, alpha) },

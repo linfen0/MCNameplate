@@ -20,6 +20,9 @@ export { MIN_TEXT_CONTRAST }
 export const LARGE_TEXT_PX = 24
 export const LARGE_TEXT_CONTRAST = 3
 
+/** 先用多轻的柔化底试：再重就宁可换成同族暗色文字，也别把底纹糊住 */
+export const LIGHT_SCRIM_MAX = 0.58
+
 /** 达标走的哪条路，界面据此解释 */
 export type TextRoute = 'palette' | 'halo' | 'scrim' | 'dark'
 
@@ -73,8 +76,13 @@ export function planText(input: TextPlanInput): TextStyle {
   const range = { low: relativeLuminance(background.dark), high: relativeLuminance(background.light) }
   const bright = sideCandidates(swatches, 'light')
   const dark = sideCandidates(swatches, 'dark')
-  const shadowFor = (fill: string) =>
-    chooseShadowColor(fill, relativeLuminance(fill) > 0.5 ? dark : bright)?.color ?? null
+  // 投影取"反侧"：文字比底纹亮 → 用暗侧；文字比底纹暗（白纸底那种）→ 用亮侧
+  const midLuminance = (range.low + range.high) / 2
+  const shadowFor = (fill: string) => {
+    const fillLum = relativeLuminance(fill)
+    const [first, second] = fillLum > midLuminance ? [dark, bright] : [bright, dark]
+    return chooseShadowColor(fill, first)?.color ?? chooseShadowColor(fill, second)?.color ?? null
+  }
 
   const direct = chooseTextColor(bright, range, threshold)
   if (direct.meetsStandard) {
@@ -110,34 +118,68 @@ export function planText(input: TextPlanInput): TextStyle {
     }
   }
 
-  // 亮字 + 同族投影，再用最小强度的同色系柔化底把阈值补上（仍然保持亮字）
-  const scrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold })
-  if (scrim.meetsStandard) {
+  // 3) 亮字 + 同族投影，再用**最轻**的一档同色系柔化底把阈值补上（仍然保持亮字）
+  const lightScrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold, maxAlpha: LIGHT_SCRIM_MAX })
+  if (lightScrim.meetsStandard) {
     return {
-      fill: scrim.text,
+      fill: lightScrim.text,
       outline: null,
-      shadow: shadowFor(scrim.text),
-      contrast: scrim.contrast,
+      shadow: shadowFor(lightScrim.text),
+      contrast: lightScrim.contrast,
       threshold,
       largeText,
       outlineContrast: null,
-      distance: scrim.textDistance,
-      scrim,
+      distance: lightScrim.textDistance,
+      scrim: lightScrim,
       route: 'scrim',
     }
   }
 
-  // 兜底：同族暗色文字 + 亮投影，底纹依旧不动
-  const fallback = chooseTextColor(dark, range, threshold)
+  // 4) 底纹太浅（白纸一样）：这时候同族暗色文字 + 亮投影才是正解，而且底纹一点不用动
+  const darkText = chooseTextColor(dark, range, threshold)
+  if (darkText.meetsStandard) {
+    return {
+      fill: darkText.color,
+      outline: null,
+      shadow: shadowFor(darkText.color),
+      contrast: darkText.contrast,
+      threshold,
+      largeText,
+      outlineContrast: null,
+      distance: darkText.distance,
+      scrim: null,
+      route: 'dark',
+    }
+  }
+
+  // 5) 两样都不行：宁可垫重一点，也不把 ID 压成读不清的颜色
+  const heavyScrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold })
+  if (heavyScrim.meetsStandard) {
+    return {
+      fill: heavyScrim.text,
+      outline: null,
+      shadow: shadowFor(heavyScrim.text),
+      contrast: heavyScrim.contrast,
+      threshold,
+      largeText,
+      outlineContrast: null,
+      distance: heavyScrim.textDistance,
+      scrim: heavyScrim,
+      route: 'scrim',
+    }
+  }
+
+  // 6) 如实报告：选一条对比度最高的组合，不假装达标
+  const best = darkText.contrast >= lightScrim.contrast ? darkText : lightScrim
   return {
-    fill: fallback.color,
+    fill: best.color,
     outline: null,
-    shadow: shadowFor(fallback.color),
-    contrast: fallback.contrast,
+    shadow: shadowFor(best.color),
+    contrast: best.contrast,
     threshold,
     largeText,
     outlineContrast: null,
-    distance: fallback.distance,
+    distance: 'distance' in best ? best.distance : best.textDistance,
     scrim: null,
     route: 'dark',
   }
