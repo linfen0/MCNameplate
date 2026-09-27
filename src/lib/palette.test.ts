@@ -106,6 +106,51 @@ describe('buildThemeFromTexture', () => {
     expect(theme.palette!.dark).toBeTruthy()
   })
 
+  it('文字色优先取自提取出的色卡（不是写死的纯白/纯黑）', () => {
+    // 深底 + 大面积亮部：亮部色卡与底色的对比度足够，就应该拿它当文字色
+    const image = createImage(16, 16)
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        setPixel(image, x, y, x < 10 ? [22, 20, 26, 255] : [236, 232, 220, 255])
+      }
+    }
+    const palette = extractPalette(image)
+    const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
+    expect([palette.light, palette.accent, palette.dark]).toContain(theme.text.fill)
+    expect(theme.text.fill).not.toBe('#ffffff')
+  })
+
+  it('色卡里挑不出足够对比度时才退回纯白/纯黑', () => {
+    // 全是中间灰：亮部/暗部卡与底色对比不足，必须退回黑或白保证可读
+    const image = solid(16, 16, [128, 128, 128, 255])
+    const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
+    expect(['#ffffff', '#1b1b1b']).toContain(theme.text.fill)
+  })
+
+  it('无论什么贴图，文字与底色的对比度都达到 WCAG AA（4.5:1）', () => {
+    const samples: Array<[number, number, number, number]> = [
+      [10, 10, 12, 255],
+      [128, 128, 128, 255],
+      [240, 240, 235, 255],
+      [120, 40, 40, 255],
+      [40, 90, 160, 255],
+      [250, 200, 60, 255],
+    ]
+    for (const color of samples) {
+      const theme = buildThemeFromTexture(solid(16, 16, color), { fillMode: 'palette' })
+      const ratio =
+        (Math.max(relativeLuminance(theme.text.fill), relativeLuminance(color)) + 0.05) /
+        (Math.min(relativeLuminance(theme.text.fill), relativeLuminance(color)) + 0.05)
+      expect(ratio, `底色 ${color} 的文字对比度`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('描边色取自色卡且与文字色有区分', () => {
+    const theme = buildThemeFromTexture(blockTexture(), { fillMode: 'palette' })
+    expect(theme.text.shadow).toBeTruthy()
+    expect(theme.text.shadow).not.toBe(theme.text.fill)
+  })
+
   it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {
     const dark = buildThemeFromTexture(solid(8, 8, [30, 30, 40, 255]))
     const light = buildThemeFromTexture(solid(8, 8, [230, 230, 220, 255]))

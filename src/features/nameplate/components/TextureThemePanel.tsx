@@ -6,6 +6,7 @@ import { paletteToCssGradient } from '../../../lib/palette'
 import type { RgbaImage } from '../../../lib/types'
 import type { TextureLibraryState } from '../../../hooks/useTextureLibrary'
 import type { NameplateConfig } from '../config'
+import { resolveTheme } from '../theme'
 
 export interface TextureThemePanelProps {
   config: NameplateConfig
