@@ -574,7 +574,8 @@ async function main() {
     await download.saveAs(svgPath)
     const svgText = await readFile(svgPath, 'utf8')
 
-    const layers = ['底板', '背景纹理', '外框倒角', '分割线', '头像肖像位', '文字压暗', '头像', 'ID文字']
+    // 「文字压暗」是用户可选的装饰层（默认关），不在必需图层里
+    const layers = ['底板', '背景纹理', '外框倒角', '分割线', '头像肖像位', '头像', 'ID文字']
     const missing = layers.filter((id) => !svgText.includes(`<g id="${id}">`))
     check(missing.length === 0, 'SVG 每个构件都是独立命名图层', missing.length ? `缺少 ${missing.join('/')}` : layers.join(' / '))
     const glyphGroups = (svgText.match(/<g id="ID文字-\d+-/g) ?? []).length
@@ -938,6 +939,25 @@ async function main() {
     )
     await exportCanvas(page, 'nameplate-light-gold.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-light-gold.png'), fullPage: true })
+
+    // 导出也要带上同一圈描边：SVG 与 3D 里的文字颜色必须与预览一致
+    const svgDownload = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载 SVG' }).click()
+    const goldSvg = await readFile(await (await svgDownload).path(), 'utf8')
+    check(
+      goldSvg.includes(`fill="${goldStyle.fill}"`) && goldSvg.includes(`fill="${goldStyle.outline}"`),
+      'SVG 导出带上同族描边（文字色与描边与预览一致）',
+      `${goldStyle.fill} / ${goldStyle.outline}`,
+    )
+    const zipDownload2 = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载 3D 模型包' }).click()
+    const goldZip = unzipSync(new Uint8Array(await readFile(await (await zipDownload2).path())))
+    const goldObj = Buffer.from(goldZip['nameplate.obj']).toString('utf8')
+    check(
+      goldObj.includes('usemtl 文字-描边'),
+      '3D 导出把描边做成独立材质层',
+      `材质 ${[...new Set((goldObj.match(/usemtl .+/g) ?? []))].join(' / ')}`,
+    )
 
     // ---- 说明页 ----
     await page.goto(`${BASE_URL}guide`, { waitUntil: 'networkidle' })
