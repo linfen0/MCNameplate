@@ -213,5 +213,5 @@ export function drawPixelLabel(
     'left',
     'top',
   )
-  return { x, y, width: size.width, height: size.height }
+  return { x, y: anchor.y, width: size.width, height: size.height }
 }

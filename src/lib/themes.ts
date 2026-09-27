@@ -1,5 +1,6 @@
 /** 名牌底色主题：少量真正有辨识度的 Minecraft 配色，整体偏暗以保证 ID 可读 */
 
+import { softNeutral } from './palette'
 import type { ExtractedPalette } from './palette'
 import type { Palette, PanelTexture } from './textures'
 
@@ -37,6 +38,13 @@ export interface Theme {
   borderFromTexture?: boolean
 }
 
+/**
+ * 主题文字色不用纯白 / 纯黑，而是取“底色同族的最柔和中性色”（M3 的 on-surface 做法）：
+ * 色相跟着底纹走、彩度压到 12% 以下、明度停在 tone 90 / tone 10 附近，
+ * 这样文字和底板是同一族的颜色，而不是糊在图上的一块白。
+ */
+const offWhiteOf = (base: string) => softNeutral(base, 'light')
+
 const soil: Palette = { base: '#6b4a2a', light: '#7d5a34', dark: '#4f3620' }
 const grassTop: Palette = { base: '#5d8f3f', light: '#74a851', dark: '#436c2b' }
 const stone: Palette = { base: '#6e6e6e', light: '#808080', dark: '#585858' }
@@ -51,7 +59,7 @@ export const THEMES: Theme[] = [
     texture: { kind: 'noise', palette: soil, grassTop },
     slot: { fill: '#2a1d0f', light: '#4a3520', dark: '#150e06' },
     frame: { fill: '#1c1c1c', light: '#8a8a8a', dark: '#0d0d0d' },
-    text: { fill: '#ffffff', shadow: '#20160a' },
+    text: { fill: offWhiteOf(soil.base), shadow: '#20160a' },
     divider: '#0d0d0d',
     guide: '#ff4fd8',
     textured: true,
@@ -64,7 +72,7 @@ export const THEMES: Theme[] = [
     texture: { kind: 'noise', palette: { base: '#3f4145', light: '#4c4f54', dark: '#313337' } },
     slot: { fill: '#1c1e21', light: '#3a3d42', dark: '#0f1012' },
     frame: { fill: '#101113', light: '#7d838c', dark: '#08090a' },
-    text: { fill: '#f2f5f7', shadow: '#15171a' },
+    text: { fill: offWhiteOf('#3f4145'), shadow: '#15171a' },
     divider: '#08090a',
     guide: '#ff4fd8',
     textured: true,
@@ -90,7 +98,7 @@ export const THEMES: Theme[] = [
     texture: { kind: 'solid', color: '#12081c' },
     slot: { fill: '#1c0f2e', light: '#33195a', dark: '#0a0413' },
     frame: { fill: '#0d0518', light: '#8a4bff', dark: '#3a0f7a' },
-    text: { fill: '#ffffff', shadow: '#3f3f5f' },
+    text: { fill: offWhiteOf('#12081c'), shadow: '#3f3f5f' },
     divider: '#4a1a8f',
     guide: '#38f8ff',
     textured: false,
@@ -116,7 +124,7 @@ export const THEMES: Theme[] = [
     texture: { kind: 'noise', palette: stone },
     slot: { fill: '#2e2e2e', light: '#4d4d4d', dark: '#171717' },
     frame: { fill: '#141414', light: '#a8a8a8', dark: '#0a0a0a' },
-    text: { fill: '#ffffff', shadow: '#232323' },
+    text: { fill: offWhiteOf(stone.base), shadow: '#232323' },
     divider: '#0a0a0a',
     guide: '#ff4fd8',
     textured: true,

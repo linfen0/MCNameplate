@@ -22,6 +22,7 @@ import {
   type TextPlacement,
 } from '../../lib/pixelFont'
 import { extractHead, extractHeadCube } from '../../lib/skin'
+import { BACKDROP_ALPHA, scrimDirection, scrimTintOf, scrimTone } from '../../lib/scrim'
 import { getPanelTexture } from '../../lib/textures'
 import type { Theme } from '../../lib/themes'
 import type { ParsedSkin, RgbaImage } from '../../lib/types'
@@ -287,16 +288,22 @@ export function composeNameplateSvg(input: ComposeSvgInput): string {
     parts.push('  </g>')
   }
 
-  // 6) 文字压暗（棋盘格 pattern，保持矢量）
+  // 6) 文字压暗（棋盘格 pattern，保持矢量）；颜色与画布一致：底色同族的中性色，不是纯黑
   if (config.textBackdrop && theme.textured) {
     const cell = Math.max(1, layout.unit)
     const originX = layout.inner.x + Math.floor((layout.idBox.x - layout.inner.x) / cell) * cell
     const originY = layout.inner.y + Math.floor((layout.idBox.y - layout.inner.y) / cell) * cell
+    const tint = scrimTintOf(theme)
+    const backdrop = scrimTone(tint, scrimDirection(tint))
     defs.push(
       `    <pattern id="文字压暗-棋盘格" x="${originX}" y="${originY}" width="${cell * 2}" height="${cell * 2}" patternUnits="userSpaceOnUse">`,
     )
-    defs.push(`      <rect width="${cell}" height="${cell}" fill="#000000" fill-opacity="0.42" />`)
-    defs.push(`      <rect x="${cell}" y="${cell}" width="${cell}" height="${cell}" fill="#000000" fill-opacity="0.42" />`)
+    defs.push(
+      `      <rect width="${cell}" height="${cell}" fill="${backdrop}" fill-opacity="${BACKDROP_ALPHA}" />`,
+    )
+    defs.push(
+      `      <rect x="${cell}" y="${cell}" width="${cell}" height="${cell}" fill="${backdrop}" fill-opacity="${BACKDROP_ALPHA}" />`,
+    )
     defs.push('    </pattern>')
     parts.push(`  <g id="文字压暗">`)
     parts.push(

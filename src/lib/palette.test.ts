@@ -126,11 +126,15 @@ describe('buildThemeFromTexture', () => {
     expect(theme.text.fill).not.toBe('#ffffff')
   })
 
-  it('色卡里挑不出足够对比度时才退回纯白/纯黑', () => {
-    // 全是中间灰：亮部/暗部卡与底色对比不足，必须退回黑或白保证可读
+  it('中灰底退到同色系最深的档位，而不是纯黑', () => {
+    // 全是中间灰：亮部/暗部卡与底色对比不足，必须往两端推保证可读
     const image = solid(16, 16, [128, 128, 128, 255])
     const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
-    expect(['#ffffff', '#151515']).toContain(theme.text.fill)
+    expect(contrastRatio(theme.text.fill, '#808080')).toBeGreaterThanOrEqual(4.5)
+    expect(relativeLuminance(theme.text.fill)).toBeLessThan(0.05)
+    // 纯黑 / 纯白都不出现：推到最深也只是 tone 档位（#0F0F0F 这一级）
+    expect(['#000000', '#ffffff']).not.toContain(theme.text.fill)
+    expect(theme.text.fill).not.toBe('#080808')
   })
 
   it('无论什么贴图，文字与底色的对比度都达到 WCAG AA（4.5:1）', () => {
@@ -162,19 +166,23 @@ describe('buildThemeFromTexture', () => {
     expect(theme.text.shadow).not.toBe(theme.text.fill)
   })
 
-  it('文字色也限定在色卡内（除非色卡整体对比不足）', () => {
+  it('文字色也优先从色卡里取：够用就用卡内颜色，不够才用同族中性色档位', () => {
     const image = blockTexture()
     const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
     const palette = extractPalette(image)
-    const swatches = [palette.base, palette.light, palette.dark, palette.accent, '#ffffff', '#151515']
-    expect(swatches).toContain(theme.text.fill)
+    const swatches = [palette.base, palette.light, palette.dark, palette.accent]
+    expect(contrastRatio(theme.text.fill, palette.base)).toBeGreaterThanOrEqual(4.5)
+    if (!swatches.includes(theme.text.fill)) {
+      // 卡内颜色不够用 → 派生档必须还跟底色同一族（彩度被压到中性色的上限内）
+      expect(hexToHsl(theme.text.fill).s).toBeLessThanOrEqual(NEUTRAL_MAX_CHROMA + 0.02)
+    }
   })
 
-  it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {
+  it('深色贴图用亮字，浅色贴图用暗字（按对比度自动选）', () => {
     const dark = buildThemeFromTexture(solid(8, 8, [30, 30, 40, 255]))
     const light = buildThemeFromTexture(solid(8, 8, [230, 230, 220, 255]))
-    expect(relativeLuminance(dark.text.fill)).toBeGreaterThan(0.5)
-    expect(relativeLuminance(light.text.fill)).toBeLessThan(0.5)
+    expect(contrastRatio(dark.text.fill, '#1e1e28')).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(light.text.fill, '#e6e6dc')).toBeGreaterThanOrEqual(4.5)
   })
 
   it('外框 / 肖像位都由提取出的配色推导，且明暗关系正确', () => {

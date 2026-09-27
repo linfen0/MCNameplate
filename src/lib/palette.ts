@@ -278,8 +278,21 @@ export const TEXT_CONTRAST_TARGET = 7
 /** 最柔和的一档中性色（对应 M3 的 neutral tone 90 / tone 10） */
 const SOFT_TONE: Record<ToneDirection, number> = { light: 0.94, dark: 0.1 }
 
-/** AA 兜底档位：只有柔和档仍达不到 4.5:1 时才继续往两端推 */
-const RESCUE_TONES: Record<ToneDirection, number[]> = { light: [0.98], dark: [0.06, 0.03] }
+/**
+ * 柔和档之后继续往两端推的兜底档位。distance 递增 = 越极端越不优先，
+ * 于是“够 AA 就停在最软的那一档”，不会为了追求高对比一路黑到底。
+ */
+const RESCUE_TONES: Record<ToneDirection, Array<{ lightness: number; distance: number }>> = {
+  light: [
+    { lightness: 0.97, distance: 4 },
+    { lightness: 0.99, distance: 5 },
+  ],
+  dark: [
+    { lightness: 0.08, distance: 4 },
+    { lightness: 0.055, distance: 5 },
+    { lightness: 0.03, distance: 6 },
+  ],
+}
 
 /** 中性色的色相偏移强度：亮部偏暖、暗部偏冷 */
 const TONE_HUE_SHIFT = 0.22
@@ -296,6 +309,14 @@ function neutralTone(source: string, direction: ToneDirection, lightness: number
     maxChroma: NEUTRAL_MAX_CHROMA,
     hueShift: TONE_HUE_SHIFT,
   })
+}
+
+/**
+ * 最柔和的一档同族中性色（对应 M3 的 neutral tone 90 / tone 10）。
+ * 内置主题的默认文字色、垫层定调都从这里来 —— 保证“名牌上不会出现纯白 / 纯黑”。
+ */
+export function softNeutral(source: string, direction: ToneDirection): string {
+  return neutralTone(source, direction, SOFT_TONE[direction])
 }
 
 /**
@@ -322,8 +343,8 @@ export function buildTextCandidates(swatches: string[], lightBackground: boolean
   // 两个极性都留一张柔和档：中灰底上"往亮推"和"往暗推"谁够用谁上
   for (const direction of [primary, secondary]) {
     candidates.push({ color: neutralTone(source, direction, SOFT_TONE[direction]), distance: 3 })
-    for (const lightness of RESCUE_TONES[direction]) {
-      candidates.push({ color: neutralTone(source, direction, lightness), distance: 4 })
+    for (const rescue of RESCUE_TONES[direction]) {
+      candidates.push({ color: neutralTone(source, direction, rescue.lightness), distance: rescue.distance })
     }
   }
   const seen = new Set<string>()

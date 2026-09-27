@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from '../../lib/raster'
-import { relativeLuminance } from '../../lib/color'
+import { relativeLuminance, contrastRatio } from '../../lib/color'
 import { DEFAULT_CONFIG } from './config'
 import { CUSTOM_THEME_ID, resolveTheme, type CustomTexture } from './theme'
 
@@ -45,8 +45,10 @@ describe('resolveTheme', () => {
     // 默认九宫格拉伸：直接沿用上传的贴图（边框不变形）
     expect(theme.texture.kind).toBe('image')
     expect(theme.palette).toBeTruthy()
-    // 深色底 → 白字
-    expect(relativeLuminance(theme.text.fill)).toBeGreaterThan(0.5)
+    // 深色底 → 亮字，对比度达标；而且是底色同族的亮色，不是写死的纯白
+    expect(contrastRatio(theme.text.fill, theme.palette!.base)).toBeGreaterThanOrEqual(4.5)
+    expect(relativeLuminance(theme.text.fill)).toBeGreaterThan(relativeLuminance(theme.palette!.base))
+    expect(theme.text.fill).not.toBe('#ffffff')
   })
 
   it('同一张贴图会命中缓存（不重复提取配色）', () => {
