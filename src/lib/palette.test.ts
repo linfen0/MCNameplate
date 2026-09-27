@@ -82,11 +82,15 @@ describe('buildThemeFromTexture', () => {
   })
 
   it('底纹的明暗被收窄：机器类等高对比贴图也不会变成“花斑棋盘”', () => {
-    // 一半纯黑一半亮灰 —— 这种贴图如果直接用提取出的极端色当噪声三色，会糊成棋盘
+    // 中间调为主 + 少量极亮/极暗（机器类贴图的典型分布）：
+    // 直接用提取出的极端色当噪声三色会糊成棋盘
     const image = createImage(16, 16)
     for (let y = 0; y < 16; y++) {
       for (let x = 0; x < 16; x++) {
-        setPixel(image, x, y, x < 8 ? [235, 235, 235, 255] : [18, 18, 22, 255])
+        const n = (x * 5 + y * 3) % 10
+        const color: [number, number, number, number] =
+          n < 6 ? [110, 108, 104, 255] : n < 8 ? [240, 240, 240, 255] : [14, 14, 18, 255]
+        setPixel(image, x, y, color)
       }
     }
     const theme = buildThemeFromTexture(image)

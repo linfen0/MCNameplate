@@ -219,13 +219,15 @@ function clampDelta(base: string, color: string, maxDelta: number): string {
   const delta = relativeLuminance(color) - relativeLuminance(base)
   if (Math.abs(delta) <= maxDelta) return color
   const target = Math.max(0.02, Math.min(0.98, relativeLuminance(base) + Math.sign(delta) * maxDelta))
-  // 用二分把亮度调到目标附近，保持色相不变
+  // 二分把亮度调到目标附近、保持色相：向白混合亮度单调增，向黑混合单调减，方向要分开处理
+  const towardWhite = delta > 0
+  const t = (value: number) => mixHex(base, towardWhite ? '#ffffff' : '#000000', value)
   let low = 0
   let high = 1
-  const t = (value: number) => mixHex(base, delta > 0 ? '#ffffff' : '#000000', value)
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 16; i++) {
     const mid = (low + high) / 2
-    if (relativeLuminance(t(mid)) < target) low = mid
+    const below = relativeLuminance(t(mid)) < target
+    if (below === towardWhite) low = mid
     else high = mid
   }
   return t((low + high) / 2)
