@@ -32,8 +32,10 @@ export interface NameplateConfig {
   themeId: string
   /** 用户上传的方块贴图（themeId === 'custom' 时生效，支持 Mod 贴图） */
   customTexture: CustomTexture | null
-  /** 上传贴图怎么用作底纹：拉伸整张 / 平铺成方块墙 / 只取配色 */
+  /** 上传贴图怎么用作底纹：九宫格拉伸 / 整张拉伸 / 平铺成方块墙 / 只取配色 */
   textureFillMode: TextureFillMode
+  /** 九宫格模式的边框像素数 */
+  textureSlice: number
   /** 平铺模式下每个纹理像素占几格（越大方块越大） */
   textureTexelScale: number
   fontId: string
@@ -136,7 +138,8 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   avatarFill: 0.92,
   themeId: DEFAULT_THEME_ID,
   customTexture: null,
-  textureFillMode: 'stretch',
+  textureFillMode: 'nine-slice',
+  textureSlice: 2,
   textureTexelScale: 4,
   fontId: DEFAULT_FONT_ID,
   uppercase: true,

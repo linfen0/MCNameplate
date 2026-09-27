@@ -150,13 +150,15 @@ export function extractPalette(image: RgbaImage): ExtractedPalette {
   }
 }
 
-export type TextureFillMode = 'stretch' | 'tile' | 'palette'
+export type TextureFillMode = 'nine-slice' | 'stretch' | 'tile' | 'palette'
 
 export interface TextureThemeOptions {
   /** 底纹怎么用这张贴图：直接拉伸 / 平铺 / 只取配色 */
   fillMode?: TextureFillMode
   /** 平铺模式下每个纹理像素占几格 */
   texelScale?: number
+  /** 九宫格模式的边框像素数（默认按贴图尺寸的 1/8 估一个） */
+  slice?: number
   /** 主题名（界面展示） */
   name?: string
   /** 主题描述（界面展示） */
@@ -195,7 +197,7 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
   //   tile    —— 按方块尺寸平铺成方块墙
   //   palette —— 只取配色，用主色派生一块平静的程序化表面
   //     （注意：不要拿提取出的亮/暗色卡当噪声三色，深底 + 金色点缀的机器贴图会撒满金点）
-  const mode: TextureFillMode = options.fillMode ?? 'stretch'
+  const mode: TextureFillMode = options.fillMode ?? 'nine-slice'
   const texture: PanelTexture =
     mode === 'palette'
       ? {
@@ -211,6 +213,8 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
           image,
           mode,
           texelScale: Math.max(1, Math.round(options.texelScale ?? 1)),
+          // 方块贴图通常有一圈 1-2px 的边框；默认按尺寸的 1/8 估，用户可再调
+          slice: Math.max(0, Math.round(options.slice ?? Math.floor(Math.min(image.width, image.height) / 8))),
         }
 
   return {

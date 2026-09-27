@@ -27,7 +27,7 @@ export function resolveTheme(config: NameplateConfig): Theme {
   // 选了自定义但还没上传贴图 → 回退到默认主题，而不是拿到一个随机的内置主题
   if (!custom) return getTheme(DEFAULT_THEME_ID)
 
-  const key = `${config.textureFillMode}|${config.textureTexelScale}`
+  const key = `${config.textureFillMode}|${config.textureTexelScale}|${config.textureSlice}`
   const cached = cache.get(custom.image)
   const hit = cached?.get(key)
   if (hit) return hit
@@ -35,6 +35,7 @@ export function resolveTheme(config: NameplateConfig): Theme {
   const theme = buildThemeFromTexture(custom.image, {
     fillMode: config.textureFillMode,
     texelScale: config.textureTexelScale,
+    slice: config.textureSlice,
     name: custom.name,
     description: `「${custom.name}」配色：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
   })

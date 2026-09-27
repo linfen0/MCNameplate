@@ -33,10 +33,18 @@ export type PanelTexture =
   | { kind: 'noise'; palette: Palette; grassTop?: Palette }
   /**
    * 直接沿用用户上传的方块贴图：
-   *   stretch —— 整张拉伸铺满底板（一次，不重复）
-   *   tile    —— 按 texelScale 平铺成方块墙
+   *   nine-slice —— 九宫格拉伸（MC 基岩版 GUI 贴图的做法）：四角原样、边单向拉伸、中间拉伸
+   *   stretch    —— 整张拉伸铺满底板
+   *   tile       —— 按 texelScale 平铺成方块墙
    */
-  | { kind: 'image'; image: RgbaImage; mode: 'stretch' | 'tile'; texelScale: number }
+  | {
+      kind: 'image'
+      image: RgbaImage
+      mode: 'stretch' | 'tile' | 'nine-slice'
+      texelScale: number
+      /** 九宫格的边框像素数 */
+      slice: number
+    }
 
 
 /** 面板贴图的像素粒度：每个纹理像素占 unit 个画布像素 */
@@ -65,7 +73,9 @@ export function renderPanelTexture(
   }
 
   if (texture.kind === 'image') {
-    return renderImageTexture(texture, w, h)
+    return texture.mode === 'nine-slice'
+      ? renderNineSlice(texture, w, h)
+      : renderImageTexture(texture, w, h)
   }
 
   const image = createImage(w, h)
@@ -119,7 +129,55 @@ export function renderPanelTexture(
   return image
 }
 
-/** 直接用上传贴图铺底：拉伸整张，或按方块尺寸平铺 */
+/**
+ * 九宫格拉伸：四角保持原始像素，四条边只沿一个方向拉伸，只有中间区域被拉。
+ * 这是 MC 基岩版 GUI 贴图（nineslice_size）的做法，能保证边框细节不变形。
+ */
+function renderNineSlice(
+  texture: Extract<PanelTexture, { kind: 'image' }>,
+  w: number,
+  h: number,
+): RgbaImage {
+  const source = texture.image
+  const out = createImage(w, h)
+  const sw = source.width
+  const sh = source.height
+  const requested = Math.max(0, Math.round(texture.slice))
+  // 每根轴单独夹紧：边框不能超过一半，否则左右会重叠
+  const sliceX = Math.min(requested, Math.floor(w / 2), Math.floor(sw / 2))
+  const sliceY = Math.min(requested, Math.floor(h / 2), Math.floor(sh / 2))
+
+  const mapAxis = (value: number, outSize: number, srcSize: number, slice: number): number => {
+    if (slice <= 0) return Math.min(srcSize - 1, Math.floor((value * srcSize) / outSize))
+    if (value < slice) return Math.min(srcSize - 1, value)
+    if (value >= outSize - slice) return Math.max(0, srcSize - (outSize - value))
+    const outInner = outSize - slice * 2
+    const srcInner = srcSize - slice * 2
+    return slice + Math.min(srcInner - 1, Math.floor(((value - slice) * srcInner) / outInner))
+  }
+
+  for (let y = 0; y < h; y++) {
+    const sy = mapAxis(y, h, sh, sliceY)
+    const depth = 1 - 0.06 * (y / Math.max(1, h - 1))
+    for (let x = 0; x < w; x++) {
+      const sx = mapAxis(x, w, sw, sliceX)
+      const i = (sy * sw + sx) * 4
+      if (source.data[i + 3] === 0) {
+        setPixel(out, x, y, [24, 26, 30, 255])
+        continue
+      }
+      setPixel(out, x, y, [
+        source.data[i] * depth,
+        source.data[i + 1] * depth,
+        source.data[i + 2] * depth,
+        255,
+      ])
+    }
+  }
+  return out
+}
+
+/** 直接用上传贴图铺底：整张拉伸，或按方块尺寸平铺 */
 function renderImageTexture(
   texture: Extract<PanelTexture, { kind: 'image' }>,
   w: number,
@@ -170,7 +228,7 @@ export function getPanelTexture(
   // image 底纹带 ImageData，不能进 JSON key
   const key =
     texture.kind === 'image'
-      ? `image|${texture.image.width}x${texture.image.height}|${texture.mode}|${texture.texelScale}|${width}x${height}`
+      ? `image|${texture.image.width}x${texture.image.height}|${texture.mode}|${texture.texelScale}|${texture.slice}|${width}x${height}`
       : `${JSON.stringify(texture)}|${width}x${height}|${seed}`
   const hit = cache.get(key)
   if (hit) return hit
