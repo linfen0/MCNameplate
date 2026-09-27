@@ -913,7 +913,7 @@ async function main() {
     check(
       goldStyle.route === 'halo' && /^#[0-9a-f]{6}$/.test(goldStyle.outline),
       '浅色花底改用「亮字 + 同族描边」，而不是把 ID 压黑',
-      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline}`,
+      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline || '无'} · ${JSON.stringify(goldMeasured)}`,
     )
     check(
       goldStyle.contrast >= 4.5,
@@ -929,7 +929,7 @@ async function main() {
     check(
       goldMeasured.fillToOutline >= 4.5,
       '像素级复算：文字 ↔ 描边 ≥ 4.5:1',
-      `${goldMeasured.fillToOutline.toFixed(2)}:1`,
+      `${(goldMeasured.fillToOutline ?? 0).toFixed(2)}:1`,
     )
     check(
       goldMeasured.fillLum > goldMeasured.backgroundLum + 0.05,
