@@ -122,15 +122,17 @@ function makeBlockTexture() {
   return PNG.sync.write(png)
 }
 
-/** 造一块“黑白竖条”的花底贴图：任何单色文字都读不清，用来触发同色系柔化底（scrim） */
-function makeStripedTexture() {
+/**
+ * 造一块“浅金色竖条”贴图：复刻用户实测的那一张（浅底 + 花条纹）。
+ * 这是最容易把 ID 逼成黑字的场景，用来验证“亮字 + 同族描边”这条路。
+ */
+function makeLightGoldTexture() {
   const png = new PNG({ width: 16, height: 16 })
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       const i = (y * 16 + x) * 4
-      // 外圈一圈中性灰边框，内部按列交替纯黑 / 纯白
       const ring = x === 0 || y === 0 || x === 15 || y === 15
-      const base = ring ? [128, 128, 128] : x % 2 === 0 ? [10, 10, 10] : [242, 242, 242]
+      const base = ring ? [240, 217, 138] : x % 2 === 0 ? [216, 180, 92] : [193, 155, 71]
       png.data[i] = base[0]
       png.data[i + 1] = base[1]
       png.data[i + 2] = base[2]
@@ -143,6 +145,70 @@ function makeStripedTexture() {
 /* ------------------------------------------------------------------ */
 /* 2. 浏览器内像素分析                                                  */
 /* ------------------------------------------------------------------ */
+
+/** 读应用自己报出来的文字配色（画布 dataset） */
+function readTextStyle() {
+  const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+  if (!canvas) return { error: 'canvas not found' }
+  return {
+    fill: canvas.dataset.textFill ?? '',
+    outline: canvas.dataset.textOutline ?? '',
+    contrast: Number(canvas.dataset.textContrast ?? '0'),
+    route: canvas.dataset.textRoute ?? '',
+  }
+}
+
+/**
+ * 回到像素里独立验证文字配色：这个颜色真的成片画出来了吗？和紧挨着它的那一层对比度是多少？
+ * 描边存在时，"紧挨着文字的那一层"是描边而不是底纹 —— 这正是 WCAG 1.4.3 的读法。
+ */
+function sampleTextColors(style) {
+  const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+  if (!canvas) return { error: 'canvas not found' }
+  const x0 = Math.floor(canvas.width * 0.55)
+  const w = canvas.width - x0
+  const h = canvas.height
+  const { data } = canvas.getContext('2d').getImageData(x0, 0, w, h)
+  const lumOf = (r, g, b) => {
+    const lin = [r, g, b].map((v) => {
+      const c = v / 255
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+  }
+  const parse = (hex) => (/^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)) : null)
+  const keyOf = (rgb) => (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+  const fill = parse(style.fill)
+  const outline = parse(style.outline)
+  const fillKey = fill ? keyOf(fill) : -1
+  const outlineKey = outline ? keyOf(outline) : -1
+  const hist = new Map()
+  let fillCount = 0
+  let outlineCount = 0
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
+      if (key === fillKey) fillCount++
+      else if (key === outlineKey) outlineCount++
+      hist.set(key, (hist.get(key) ?? 0) + 1)
+    }
+  }
+  const modalKey = [...hist.entries()].sort((a, b) => b[1] - a[1])[0][0]
+  const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  const fillLum = fill ? lumOf(fill[0], fill[1], fill[2]) : 0
+  const outlineLum = outline ? lumOf(outline[0], outline[1], outline[2]) : null
+  const backgroundLum = lumOf((modalKey >> 16) & 255, (modalKey >> 8) & 255, modalKey & 255)
+  return {
+    fillCount,
+    outlineCount,
+    fillLum,
+    outlineLum,
+    backgroundLum,
+    fillToOutline: outlineLum === null ? null : ratio(fillLum, outlineLum),
+    fillToBackground: ratio(fillLum, backgroundLum),
+  }
+}
 
 function analyseCanvas(options = {}) {
   const dividerMinRun = options.dividerMinRun ?? 0.98

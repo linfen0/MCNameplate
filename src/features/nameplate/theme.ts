@@ -6,6 +6,7 @@
 import { buildThemeFromTexture, type ExtractedPalette } from '../../lib/palette'
 import { planText } from '../../lib/textPlan'
 import { DEFAULT_THEME_ID, getTheme, type Theme } from '../../lib/themes'
+import type { TextStyle } from '../../lib/textPlan'
 import type { RgbaImage } from '../../lib/types'
 import type { NameplateConfig } from './config'
 
@@ -19,6 +20,18 @@ export interface CustomTexture {
 }
 
 export const CUSTOM_THEME_ID = 'custom'
+
+/**
+ * 把预览里算好的文字配色套到主题上（SVG / 3D 导出用），
+ * 保证导出的文字颜色与画布上看到的一模一样。
+ */
+export function withTextStyle(theme: Theme, style?: TextStyle | null): Theme {
+  if (!style) return theme
+  return {
+    ...theme,
+    text: { fill: style.fill, outline: style.outline, shadow: theme.text.shadow },
+  }
+}
 
 const cache = new WeakMap<RgbaImage, Map<string, Theme>>()
 

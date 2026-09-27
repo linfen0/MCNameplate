@@ -1,6 +1,7 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { ChipRow, PixelButton, PixelChip } from '../../../components/pixel'
 import { canvasToBlob, copyCanvasToClipboard, downloadBlob, downloadCanvas, formatBytes } from '../../../lib/imageIo'
+import type { TextStyle } from '../../../lib/textPlan'
 import type { ParsedSkin } from '../../../lib/types'
 import { buildNameplateModelZip } from '../export3d'
 import { HEIGHT_OPTIONS, nameplateFileName, type NameplateConfig } from '../config'
@@ -16,6 +17,8 @@ export interface ExportControlsProps {
   onReset: () => void
   /** 每次渲染完成时变化，用于重新估算文件体积 */
   revision: number
+  /** 预览里已经算好的文字配色：导出与「看到的」保持一致 */
+  textStyle: TextStyle | null
 }
 
 export function ExportControls({
@@ -26,6 +29,7 @@ export function ExportControls({
   disabled,
   onReset,
   revision,
+  textStyle,
 }: ExportControlsProps) {
   const [status, setStatus] = useState<string | null>(null)
   const [estimate, setEstimate] = useState<string | null>(null)
@@ -61,7 +65,7 @@ export function ExportControls({
 
   const handleSvg = () => {
     try {
-      const svg = buildNameplateSvg(skin, config)
+      const svg = buildNameplateSvg(skin, config, textStyle)
       const name = nameplateFileName(config.id, size.width, size.height).replace(/\.png$/, '.svg')
       downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), name)
       setStatus('SVG 已开始下载（分层，可在 Figma 里逐个改）')
@@ -73,7 +77,7 @@ export function ExportControls({
   const handleModel = () => {
     if (!skin) return
     try {
-      const bundle = buildNameplateModelZip(skin, config)
+      const bundle = buildNameplateModelZip(skin, config, textStyle)
       const base = nameplateFileName(config.id, size.width, size.height).replace(/\.png$/, '')
       const bytes = new Uint8Array(bundle.zip)
       downloadBlob(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/zip' }), `${base}_3d.zip`)

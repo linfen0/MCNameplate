@@ -42,7 +42,8 @@ import {
 } from './headGeometry'
 import { resolveAspect } from './resolve'
 import { layoutIdText } from './textLayout'
-import { resolveTheme } from './theme'
+import type { TextStyle } from '../../lib/textPlan'
+import { resolveTheme, withTextStyle } from './theme'
 import { computeNameplateLayout, type LayoutPlan } from './layout'
 
 /* ------------------------------------------------------------------ */
@@ -262,6 +263,8 @@ export interface Build3DInput {
     font: { measure: (char: string) => number; padding: number }
     fill: string
     shadow: string | null
+    /** 同族描边色；有描边时文字会多出一圈几何体 */
+    outline?: string | null
   } | null
 }
 
@@ -491,6 +494,7 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
   if (text) {
     addMaterial({ name: '文字-填充', color: text.fill })
     if (text.shadow) addMaterial({ name: '文字-阴影', color: text.shadow })
+    if (text.outline) addMaterial({ name: '文字-描边', color: text.outline })
     const chars = [...text.text]
     const textImage = text.image
     const scale = text.scale
@@ -500,8 +504,10 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     chars.forEach((char, index) => {
       const advance = text.font.measure(char)
       if (!/\s/.test(char)) {
-        const from = Math.trunc(pen + text.font.padding)
-        const to = Math.trunc(pen + advance + 1)
+        // 有描边时左右各多出 1 列，切分字符几何体时要带进来
+        const lead = text.outline ? 1 : 0
+        const from = Math.trunc(pen + text.font.padding - lead)
+        const to = text.outline ? from + advance + 2 : Math.trunc(pen + advance + 1)
         const quads: SceneQuad[] = []
         for (let y = 0; y < textImage.height; y++) {
           let runStart = -1
@@ -514,9 +520,12 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
                 const rgb = `#${[0, 1, 2]
                   .map((c) => textImage.data[i + c].toString(16).padStart(2, '0'))
                   .join('')}`
-                color = text.shadow && rgb !== text.fill.replace('#', '').toLowerCase() ? '文字-阴影' : '文字-填充'
-                // 用颜色判定填充/阴影层
-                color = text.shadow && isShadowPixel(rgb, text.fill, text.shadow) ? '文字-阴影' : '文字-填充'
+                // 用颜色判定填充 / 描边 / 阴影层
+                if (text.outline) {
+                  color = rgb === text.outline.slice(0, 7).toLowerCase() ? '文字-描边' : '文字-填充'
+                } else {
+                  color = text.shadow && isShadowPixel(rgb, text.fill, text.shadow) ? '文字-阴影' : '文字-填充'
+                }
               }
             }
             if (color !== runColor) {
@@ -1276,7 +1285,11 @@ export function buildNameplate3dZip(scene: Nameplate3DScene): ModelBundle {
 }
 
 /** 由皮肤与配置直接构建场景 + 打包（导出按钮用的入口，与 SVG 导出同源） */
-export function buildNameplateModelZip(skin: ParsedSkin | null, config: NameplateConfig): ModelBundle {
+export function buildNameplateModelZip(
+  skin: ParsedSkin | null,
+  config: NameplateConfig,
+  style?: TextStyle | null,
+): ModelBundle {
   const layout = computeNameplateLayout({
     height: config.height,
     aspect: resolveAspect(config),
@@ -1287,7 +1300,8 @@ export function buildNameplateModelZip(skin: ParsedSkin | null, config: Nameplat
     avatarFill: config.avatarFill,
     showDivider: config.showDivider,
   })
-  const theme = resolveTheme(config)
+  // 文字配色优先用预览里已经算好的那一份，保证「看到的 = 导出的」
+  const theme = withTextStyle(resolveTheme(config), style)
   const font = getPixelFont(config.fontId)
   const textLayout = layoutIdText(font, theme, config, layout.idBox)
   const usable = skin !== null && !skin.issues.some((issue) => issue.level === 'error')
@@ -1305,7 +1319,8 @@ export function buildNameplateModelZip(skin: ParsedSkin | null, config: Nameplat
         placement: textLayout.placement,
         font: { measure: (char: string) => measureText(font, char).advance, padding: textLayout.block.padding },
         fill: theme.text.fill,
-        shadow: config.shadow ? theme.text.shadow : null,
+        shadow: textLayout.outline ? null : config.shadow ? theme.text.shadow : null,
+        outline: textLayout.outline,
       },
     }),
   )

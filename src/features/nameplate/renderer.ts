@@ -86,6 +86,11 @@ export function renderNameplate(
   }
 
   const idResult = drawIdText(ctx, layout, theme, font, config)
+  // 把解析出来的文字配色挂到画布上：界面与端到端验证都读这里，避免各自猜
+  canvas.dataset.textFill = idResult.style.fill
+  canvas.dataset.textOutline = idResult.style.outline ?? ''
+  canvas.dataset.textContrast = idResult.style.contrast.toFixed(2)
+  canvas.dataset.textRoute = idResult.style.route
 
   const ratio = summarizeBlocks(
     layout.inner.width,

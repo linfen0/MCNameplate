@@ -59,6 +59,7 @@ export function StudioPage() {
             disabled={!canExport}
             onReset={reset}
             revision={revision}
+            textStyle={result?.textStyle ?? null}
           />
         </Panel>
       </div>
