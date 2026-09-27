@@ -145,12 +145,3 @@ export function chooseScrim(input: ScrimInput): ScrimPlan {
   // 最重的一档也救不回来：如实返回（上层会改用同族暗色文字）
   return best as ScrimPlan
 }
-/** sRGB 空间按 alpha 叠加（与 canvas 的 globalAlpha 行为一致，不做线性化） */
-function over(background: string, color: string, alpha: number): number {
-  return relativeLuminance(mixHex(background, color, alpha))
-}
-
-/**
- * 挑一层“够用就停”的柔化底：从最轻的强度往上试，只要最坏情况（最暗 / 最亮像素）
- * 下的文字对比度达标就停 —— 尽量少盖住用户贴图。
- */
