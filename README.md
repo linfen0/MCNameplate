@@ -152,8 +152,15 @@ ID文字  每个字符一个对象（点阵逐段挤出，带真实厚度）
 | 文件 | 给谁用 |
 | --- | --- |
 | `blender/build_nameplate_3d.py` | Blender：运行即生成原生集合/对象/材质/UV，贴图自动 pack，另存即为 .blend |
-| `nameplate.gltf` | Blender / Spline / Three.js 直接导入（贴图内嵌） |
+| `nameplate.glb` | **推荐**：glTF 二进制单文件，Blender / Spline 直接拖入（贴图在 BIN chunk 里） |
+| `nameplate.gltf` | glTF 2.0（贴图走 data URI），Three.js / 其他工具 |
 | `nameplate.obj` + `.mtl` + `textures/` | 通用交换格式 |
+
+> **导入后看不到贴图？** 先确认 Blender 视口不是 **Solid** 模式——Solid 渲染永远不显示 image texture，
+> 只显示材质基础色，所以一片灰是正常的；按 `Z` → Material Preview 即可。
+> 用建场脚本时它会自动切到 Material Preview。想核实贴图有没有进文件：
+> 点任一材质，Shading 面板里应有接好的 Image Texture 节点。
+> 导出结果用 **Khronos 官方 glTF-Validator** 卡在 CI 里：`npm run validate:gltf`（0 error / 0 warning）。
 
 > 不直接产出 `.blend`：它是 Blender 的内存转储二进制，结构随版本变化，程序生成无法保证被正确加载；
 > 建场脚本生成的是完全原生的场景，等价且不会版本不兼容。
@@ -179,6 +186,7 @@ ID文字  每个字符一个对象（点阵逐段挤出，带真实厚度）
 ```bash
 npm run test            # 115 个单元测试
 npm run check           # 一条命令：类型检查 + 单元测试 + 构建 + 端到端视觉验证
+npm run validate:gltf   # 用 Khronos 官方校验器检查 3D 包里的 glTF / GLB
 npm run verify:visual   # 只跑端到端视觉验证（会自动先构建）
 ```
 

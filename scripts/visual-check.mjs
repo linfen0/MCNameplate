@@ -476,6 +476,7 @@ async function main() {
     const required = [
       '导入说明.txt',
       'blender/build_nameplate_3d.py',
+      'nameplate.glb',
       'nameplate.gltf',
       'nameplate.obj',
       'nameplate.mtl',
@@ -505,6 +506,38 @@ async function main() {
     )
     const gltfBinary = Buffer.from(String(gltf.buffers[0].uri).split(',')[1], 'base64').length
     check(gltfBinary === gltf.buffers[0].byteLength, 'glTF buffer 长度与 base64 实际长度一致')
+
+    // 用 Khronos 官方校验器卡规范（POSITION 缺 min/max 这类问题 Blender 会静默吞掉）
+    const { default: gltfValidator } = await import('gltf-validator')
+    const gltfReport = await gltfValidator.validateBytes(new Uint8Array(entries['nameplate.gltf']), {
+      maxIssues: 5,
+    })
+    check(
+      gltfReport.issues.numErrors === 0 && gltfReport.issues.numWarnings === 0,
+      '官方 glTF-Validator：.gltf 无 error / warning',
+      `errors=${gltfReport.issues.numErrors} warnings=${gltfReport.issues.numWarnings} infos=${gltfReport.issues.numInfos}`,
+    )
+    const glbReport = await gltfValidator.validateBytes(new Uint8Array(entries['nameplate.glb']), {
+      maxIssues: 5,
+    })
+    check(
+      glbReport.issues.numErrors === 0 && glbReport.issues.numWarnings === 0,
+      '官方 glTF-Validator：.glb 无 error / warning',
+      `errors=${glbReport.issues.numErrors} warnings=${glbReport.issues.numWarnings} infos=${glbReport.issues.numInfos}`,
+    )
+    const glbBytes = entries['nameplate.glb']
+    const glbMagic = Buffer.from(glbBytes.slice(0, 4)).toString('latin1')
+    const glbDeclared = new DataView(glbBytes.buffer, glbBytes.byteOffset, glbBytes.byteLength).getUint32(8, true)
+    check(
+      glbMagic === 'glTF' && glbDeclared === glbBytes.byteLength,
+      'GLB 头部合法（魔数 glTF + 长度自洽）',
+      `${glbMagic} / ${glbDeclared} vs ${glbBytes.byteLength}`,
+    )
+    check(
+      glbReport.info.totalTriangleCount > 2000,
+      'GLB 内含完整几何',
+      `${glbReport.info.totalTriangleCount} 个三角面 / ${glbReport.info.drawCallCount} 个绘制调用`,
+    )
 
     // Blender 脚本：落盘后用 python3 做真实语法检查
     const scriptPath = path.join(OUT_DIR, 'build_nameplate_3d.py')

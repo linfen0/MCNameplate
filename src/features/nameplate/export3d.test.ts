@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createImage, setPixel } from '../../lib/raster'
-import { getPixelFont, renderTextBlock, placeTextBlock } from '../../lib/pixelFont'
+import { getPixelFont, measureText } from '../../lib/pixelFont'
 import { getTheme } from '../../lib/themes'
 import type { HeadCube } from '../../lib/skin'
 import type { RgbaImage } from '../../lib/types'
 import { DEFAULT_CONFIG } from './config'
 import { computeNameplateLayout } from './layout'
+import { layoutIdText } from './textLayout'
 import {
   buildNameplate3DScene,
   createSceneProjection,
@@ -35,6 +36,20 @@ function makeCube(withHat = true): HeadCube {
   return { faceSize: 8, base: faces, hat: withHat ? { ...faces } : null }
 }
 
+function buildLayout(themeId = DEFAULT_CONFIG.themeId) {
+  const config = { ...DEFAULT_CONFIG, themeId }
+  return computeNameplateLayout({
+    height: 512,
+    aspect: 4,
+    splitMode: 'tight',
+    ratioLeft: config.ratioLeft,
+    avatarSide: config.avatarSide,
+    headStyle: config.headStyle,
+    avatarFill: config.avatarFill,
+    showDivider: config.showDivider,
+  })
+}
+
 function buildScene(withHat = true, themeId = DEFAULT_CONFIG.themeId): Nameplate3DScene {
   const config = { ...DEFAULT_CONFIG, themeId }
   const layout = computeNameplateLayout({
@@ -48,25 +63,72 @@ function buildScene(withHat = true, themeId = DEFAULT_CONFIG.themeId): Nameplate
     showDivider: config.showDivider,
   })
   const theme = getTheme(themeId)
-  const block = renderTextBlock({ text: 'NOTCH_2024', font: FONT, fill: theme.text.fill })
-  const scale = 8
-  const placement = placeTextBlock(block, layout.idBox, scale, 'center', 'middle')
+  // 走生产路径同一套排版：真实字库宽度 + 真实整数倍率，
+  // 用假的字符宽度会让“推进偏移”这类 bug 测不出来
+  const config2 = { ...config, id: 'NOTCH_2024' }
+  const textLayout = layoutIdText(FONT, theme, config2, layout.idBox)
   return buildNameplate3DScene({
     layout,
     theme,
     skin: null,
     cube: makeCube(withHat),
     text: {
-      text: 'NOTCH_2024',
-      image: block.image,
-      scale,
-      placement,
-      font: { measure: (char: string) => (char === ' ' ? 4 : 6), padding: block.padding },
+      text: textLayout.text,
+      image: textLayout.block.image,
+      scale: textLayout.scale,
+      placement: textLayout.placement,
+      font: {
+        measure: (char: string) => measureText(FONT, char).advance,
+        padding: textLayout.block.padding,
+      },
       fill: theme.text.fill,
       shadow: theme.text.shadow,
     },
   })
 }
+
+describe('几何必须落在名牌范围内（回归：文字推进偏移曾加两遍导致跑出底板）', () => {
+  it('所有部件的顶点投影回画布后都在名牌内', () => {
+    const layout = buildLayout()
+    const scene = buildScene()
+    const { canvasOf } = createSceneProjection(layout)
+    for (const part of scene.parts) {
+      for (const quad of part.quads) {
+        for (const vertex of quad.verts) {
+          const point = canvasOf(vertex)
+          expect(point.x, `${part.name} x`).toBeGreaterThanOrEqual(-1)
+          expect(point.x, `${part.name} x`).toBeLessThanOrEqual(layout.width + 1)
+          expect(point.y, `${part.name} y`).toBeGreaterThanOrEqual(-1)
+          expect(point.y, `${part.name} y`).toBeLessThanOrEqual(layout.height + 1)
+        }
+      }
+    }
+  })
+
+  it('每个字符都落在 ID 文本区内（不会跑到右侧外面）', () => {
+    const layout = buildLayout()
+    const scene = buildScene()
+    const { canvasOf } = createSceneProjection(layout)
+    const chars = scene.parts.filter((part) => part.group === 'ID文字')
+    expect(chars.length).toBeGreaterThan(0)
+    // 文字按 drawText 的落点，允许 1px 取整误差
+    for (const part of chars) {
+      for (const quad of part.quads) {
+        for (const vertex of quad.verts) {
+          const point = canvasOf(vertex)
+          expect(point.x, `${part.name} 越出 ID 区左侧`).toBeGreaterThanOrEqual(layout.idBox.x - 2)
+          expect(point.x, `${part.name} 越出 ID 区右侧`).toBeLessThanOrEqual(
+            layout.idBox.x + layout.idBox.width + 2,
+          )
+          expect(point.y, `${part.name} 越出 ID 区上边`).toBeGreaterThanOrEqual(layout.idBox.y - 2)
+          expect(point.y, `${part.name} 越出 ID 区下边`).toBeLessThanOrEqual(
+            layout.idBox.y + layout.idBox.height + 2,
+          )
+        }
+      }
+    }
+  })
+})
 
 describe('世界坐标映射', () => {
   it('名牌高度 = 1 个单位，正面居中', () => {

@@ -135,6 +135,8 @@ export function shadeFaceTexture(image: RgbaImage, brightness: number): RgbaImag
 export interface SceneProjection {
   /** 2D 画布坐标 + 深度（单位：名牌高度）→ 世界坐标 */
   to3d: (px: number, py: number, depth: number) => Vec3
+  /** 世界坐标 → 2D 画布坐标（忽略深度），用于回验几何是否落在名牌范围内 */
+  canvasOf: (point: Vec3) => { x: number; y: number }
   /** 头像立方体的半边长度（世界单位） */
   headHalfSize: number
   /** 头像中心的世界坐标 */
@@ -165,6 +167,11 @@ export function createSceneProjection(layout: LayoutPlan): SceneProjection {
     }
   }
 
+  const canvasOf = (point: Vec3): { x: number; y: number } => ({
+    x: (point.x * right.x + point.y * right.y + point.z * right.z + halfWidth) * layout.height,
+    y: (halfHeightUnits - (point.x * up.x + point.y * up.y + point.z * up.z)) * layout.height,
+  })
+
   const headHalfSize = 0.5 * norm
   const centre = {
     x: layout.headBox.x + layout.headBox.width / 2,
@@ -172,7 +179,7 @@ export function createSceneProjection(layout: LayoutPlan): SceneProjection {
   }
   const headCenter = to3d(centre.x, centre.y, -headHalfSize * 0.9)
 
-  return { to3d, headHalfSize, headCenter }
+  return { to3d, canvasOf, headHalfSize, headCenter }
 }
 
 /* ------------------------------------------------------------------ */
@@ -488,7 +495,9 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
                 quads.push(
                   ...textRunQuads(
                     to3d,
-                    originX + (runStart + pen) * scale,
+                    // runStart 是整块点阵里的绝对 x（from = pen + padding），
+                    // 这里再乘一次 pen 会让每个字符依次右移，最后跑出底板
+                    originX + runStart * scale,
                     originY + y * scale,
                     (x - runStart) * scale,
                     scale,
@@ -591,6 +600,9 @@ Minecraft 名牌工坊 · 名牌 3D 建场脚本
 用法（二选一）
   A. Blender：脚本工作区 → 打开 → 选中本文件 → 运行
   B. 命令行：blender --python build_nameplate_3d.py
+
+运行后会自动把视口切到 Material Preview —— Solid 模式永远不显示贴图，
+如果你手动切回 Solid 就只会看到一片灰，那不是贴图丢了。
 
 生成的场景是**整块名牌的三维体**，按与 2D 导出一致的分层拆成独立对象：
   集合「名牌」      底板 / 背景 / 外框倒角（上左下右）/ 分割线 / 头像肖像位
@@ -738,6 +750,34 @@ def build_part(part, material_by_name):
     return obj
 
 
+def setup_viewport():
+    """让 Blender 一运行就能看到贴图。
+    注意：Solid 模式永远不显示 image texture，必须切到 Material Preview。"""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for space in area.spaces:
+                if space.type == "VIEW_3D":
+                    try:
+                        space.shading.type = "MATERIAL"
+                    except Exception:
+                        pass
+    scene = bpy.context.scene
+    # 像素风不要被 AgX / Filmic 冲淡颜色
+    for transform in ("Standard",):
+        try:
+            scene.view_settings.view_transform = transform
+        except Exception:
+            pass
+    for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+        try:
+            scene.render.engine = engine
+            break
+        except Exception:
+            continue
+
+
 def build_camera_and_light():
     direction = CAMERA_DIRECTION
     camera_data = bpy.data.cameras.new("名牌相机")
@@ -776,6 +816,7 @@ def main():
         build_part(part, material_by_name)
 
     build_camera_and_light()
+    setup_viewport()
     try:
         bpy.ops.file.pack_all()
     except Exception as error:
@@ -864,17 +905,40 @@ export function sceneToObj(scene: Nameplate3DScene): { obj: string; mtl: string 
   return { obj: obj.join('\n'), mtl: mtl.join('\n') }
 }
 
+function pngBytes(image: RgbaImage): Uint8Array {
+  const base64 = rgbaToDataUrl(image).split(',')[1]
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+interface GltfModel {
+  json: Record<string, unknown>
+  binary: Uint8Array
+}
+
 /**
- * glTF 2.0 导出。encodePng 可注入，便于在 Node 里单测（浏览器默认走 canvas）。
+ * 构建 glTF 2.0 模型。embedImages 决定贴图怎么放：
+ * 'dataUri' 适合单文件 .gltf，'bufferView' 是 .glb 的要求。
  */
-export function sceneToGltf(
+function buildGltfModel(
   scene: Nameplate3DScene,
-  encodePng: (image: RgbaImage) => string = rgbaToDataUrl,
-): string {
+  embedImages: 'dataUri' | 'bufferView',
+  encodePng: (image: RgbaImage) => string,
+): GltfModel {
   const materials: unknown[] = []
-  const images: Array<{ uri: string }> = []
+  const images: Array<Record<string, unknown>> = []
   const textures: Array<{ source: number; sampler: number }> = []
+  const textured = new Set<string>()
   const materialIndex = new Map<string, number>()
+  const pendingImages: Array<{ index: number; bytes: Uint8Array; mimeType: string }> = []
 
   for (const material of scene.materials) {
     const color = material.color.replace('#', '')
@@ -893,11 +957,17 @@ export function sceneToGltf(
     }
     if (material.textureFile) {
       const image = scene.textures[material.textureFile]
-      images.push({ uri: encodePng(image) })
+      if (embedImages === 'dataUri') {
+        images.push({ uri: encodePng(image) })
+      } else {
+        images.push({ mimeType: 'image/png', bufferView: -1 })
+        pendingImages.push({ index: images.length - 1, bytes: pngBytes(image), mimeType: 'image/png' })
+      }
       textures.push({ source: images.length - 1, sampler: 0 })
       ;(entry.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = {
         index: textures.length - 1,
       }
+      textured.add(material.name)
       if (material.alphaMask) {
         entry.alphaMode = 'MASK'
         entry.alphaCutoff = 0.5
@@ -909,45 +979,63 @@ export function sceneToGltf(
 
   const chunks: Uint8Array[] = []
   let byteOffset = 0
-  const bufferViews: unknown[] = []
-  const accessors: unknown[] = []
+  const bufferViews: Array<Record<string, unknown>> = []
+  const accessors: Array<Record<string, unknown>> = []
 
-  const pushFloats = (values: number[], type: string, components: number): number => {
-    const array = new Float32Array(values)
-    const bytes = new Uint8Array(array.buffer)
+  const append = (bytes: Uint8Array, target?: number): number => {
     const padding = (4 - (byteOffset % 4)) % 4
     if (padding) {
       chunks.push(new Uint8Array(padding))
       byteOffset += padding
     }
-    bufferViews.push({ buffer: 0, byteOffset, byteLength: bytes.byteLength, target: 34962 })
+    bufferViews.push({
+      buffer: 0,
+      byteOffset,
+      byteLength: bytes.byteLength,
+      ...(target ? { target } : {}),
+    })
     chunks.push(bytes)
     byteOffset += bytes.byteLength
-    const index = accessors.length
-    accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: values.length / components, type })
-    return index
+    return bufferViews.length - 1
+  }
+
+  const pushFloats = (values: number[], type: string, components: number): number => {
+    const view = append(new Uint8Array(new Float32Array(values).buffer), 34962)
+    const min = new Array(components).fill(Number.POSITIVE_INFINITY)
+    const max = new Array(components).fill(Number.NEGATIVE_INFINITY)
+    for (let i = 0; i < values.length; i++) {
+      const slot = i % components
+      if (values[i] < min[slot]) min[slot] = values[i]
+      if (values[i] > max[slot]) max[slot] = values[i]
+    }
+    // glTF 规范要求 POSITION 必须有 min/max —— 缺了官方校验器直接判 error
+    accessors.push({
+      bufferView: view,
+      componentType: 5126,
+      count: values.length / components,
+      type,
+      min,
+      max,
+    })
+    return accessors.length - 1
   }
 
   const pushIndices = (values: number[]): number => {
-    const array = new Uint32Array(values)
-    const bytes = new Uint8Array(array.buffer)
-    const padding = (4 - (byteOffset % 4)) % 4
-    if (padding) {
-      chunks.push(new Uint8Array(padding))
-      byteOffset += padding
-    }
-    bufferViews.push({ buffer: 0, byteOffset, byteLength: bytes.byteLength, target: 34963 })
-    chunks.push(bytes)
-    byteOffset += bytes.byteLength
-    const index = accessors.length
-    accessors.push({ bufferView: bufferViews.length - 1, componentType: 5125, count: values.length, type: 'SCALAR' })
-    return index
+    const view = append(new Uint8Array(new Uint32Array(values).buffer), 34963)
+    accessors.push({
+      bufferView: view,
+      componentType: 5125,
+      count: values.length,
+      type: 'SCALAR',
+      min: [Math.min(...values)],
+      max: [Math.max(...values)],
+    })
+    return accessors.length - 1
   }
 
   const meshes: unknown[] = []
   const nodes: unknown[] = []
   for (const part of scene.parts) {
-    // 每个部件按材质分组成 primitive
     const byMaterial = new Map<string, SceneQuad[]>()
     for (const quad of part.quads) {
       const list = byMaterial.get(quad.material)
@@ -983,12 +1071,14 @@ export function sceneToGltf(
         const base = quadIndex * 4
         indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
       })
+      const attributes: Record<string, number> = {
+        POSITION: pushFloats(positions, 'VEC3', 3),
+        NORMAL: pushFloats(normals, 'VEC3', 3),
+      }
+      // 纯色材质用不到 UV，不写可以少一堆校验器提示
+      if (textured.has(material)) attributes.TEXCOORD_0 = pushFloats(uvs, 'VEC2', 2)
       primitives.push({
-        attributes: {
-          POSITION: pushFloats(positions, 'VEC3', 3),
-          NORMAL: pushFloats(normals, 'VEC3', 3),
-          TEXCOORD_0: pushFloats(uvs, 'VEC2', 2),
-        },
+        attributes,
         indices: pushIndices(indices),
         material: materialIndex.get(material) ?? 0,
         mode: 4,
@@ -996,6 +1086,11 @@ export function sceneToGltf(
     }
     meshes.push({ name: part.name, primitives })
     nodes.push({ mesh: meshes.length - 1, name: part.name })
+  }
+
+  // .glb：贴图字节追加进 BIN，并回填 bufferView 下标
+  for (const pending of pendingImages) {
+    images[pending.index] = { mimeType: pending.mimeType, bufferView: append(pending.bytes) }
   }
 
   const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
@@ -1006,10 +1101,7 @@ export function sceneToGltf(
     cursor += chunk.byteLength
   }
 
-  let binary = ''
-  for (let i = 0; i < merged.length; i++) binary += String.fromCharCode(merged[i])
-
-  const gltf = {
+  const json: Record<string, unknown> = {
     asset: { version: '2.0', generator: 'Minecraft 名牌工坊 · nameplate 3D exporter' },
     scene: 0,
     scenes: [{ name: '名牌', nodes: nodes.map((_, index) => index) }],
@@ -1021,9 +1113,56 @@ export function sceneToGltf(
     samplers: [{ magFilter: 9728, minFilter: 9728, wrapS: 33071, wrapT: 33071 }],
     accessors,
     bufferViews,
-    buffers: [{ byteLength: total, uri: `data:application/octet-stream;base64,${btoa(binary)}` }],
+    buffers: [{ byteLength: total }],
   }
-  return JSON.stringify(gltf, null, 2)
+  return { json, binary: merged }
+}
+
+/** glTF 2.0（贴图走 data URI，单文件自包含）。encodePng 可注入，便于 Node 单测。 */
+export function sceneToGltf(
+  scene: Nameplate3DScene,
+  encodePng: (image: RgbaImage) => string = rgbaToDataUrl,
+): string {
+  const model = buildGltfModel(scene, 'dataUri', encodePng)
+  const buffer = (model.json.buffers as Array<Record<string, unknown>>)[0]
+  buffer.uri = `data:application/octet-stream;base64,${base64FromBytes(model.binary)}`
+  return JSON.stringify(model.json, null, 2)
+}
+
+/**
+ * glTF Binary（.glb）：JSON 与 BIN 各一个 chunk，贴图放进 BIN 用 bufferView 引用。
+ * 不依赖 data URI，是 Blender / Spline 这类工具最省事、最不容易出问题的格式。
+ */
+export function sceneToGlb(scene: Nameplate3DScene): Uint8Array {
+  const model = buildGltfModel(scene, 'bufferView', () => '')
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(model.json))
+  const jsonPadding = (4 - (jsonBytes.byteLength % 4)) % 4
+  const binPadding = (4 - (model.binary.byteLength % 4)) % 4
+  const totalLength =
+    12 + 8 + jsonBytes.byteLength + jsonPadding + 8 + model.binary.byteLength + binPadding
+  const out = new Uint8Array(totalLength)
+  const view = new DataView(out.buffer)
+  let offset = 0
+
+  view.setUint32(offset, 0x46546c67, true) // "glTF"
+  view.setUint32(offset + 4, 2, true)
+  view.setUint32(offset + 8, totalLength, true)
+  offset += 12
+
+  view.setUint32(offset, jsonBytes.byteLength + jsonPadding, true)
+  view.setUint32(offset + 4, 0x4e4f534a, true) // "JSON"
+  offset += 8
+  out.set(jsonBytes, offset)
+  offset += jsonBytes.byteLength
+  for (let i = 0; i < jsonPadding; i++) out[offset + i] = 0x20
+  offset += jsonPadding
+
+  view.setUint32(offset, model.binary.byteLength + binPadding, true)
+  view.setUint32(offset + 4, 0x004e4942, true) // "BIN\0"
+  offset += 8
+  out.set(model.binary, offset)
+
+  return out
 }
 
 /* ------------------------------------------------------------------ */
@@ -1047,15 +1186,23 @@ const README = `Minecraft 名牌工坊 · 名牌 3D 模型包
 
 文件说明
   blender/build_nameplate_3d.py   推荐入口：在 Blender 里运行，直接生成原生场景
-  nameplate.gltf                  glTF 2.0（贴图内嵌），Blender / Spline / Three.js 导入
+  nameplate.glb                   glTF 二进制单文件（推荐：直接拖进 Blender）
+  nameplate.gltf                  glTF 2.0（贴图走 data URI），Blender / Spline / Three.js 导入
   nameplate.obj + nameplate.mtl   通用 OBJ
   textures/*.png                  背景贴图 + 头像 12 面贴图（逐面亮度已烘好）
   导入说明.txt                     本文件
 
 在 Blender 里用（推荐）
   方式 A：脚本工作区 → 打开 → 选 blender/build_nameplate_3d.py → 运行
-          生成集合与对象、材质、UV；贴图自动 pack；随后 文件 → 保存 即得 .blend
-  方式 B：文件 → 导入 → glTF 2.0 → 选 nameplate.gltf
+          生成集合与对象、材质、UV；贴图自动 pack；视口自动切到 Material Preview；
+          随后 文件 → 保存 即得 .blend
+  方式 B：文件 → 导入 → glTF 2.0 → 选 nameplate.glb（二进制单文件，最省事）
+
+看不到贴图？先确认视口不是 Solid 模式
+  Blender 的 Solid 着色模式**不会显示 image texture**，只显示材质的基础色，
+  所以导入后看到一片灰是正常的。按 Z → Material Preview（或页眉第三个球）即可。
+  想确认贴图到底有没有导进来：切到 Shading 工作区点任一材质，
+  应该能看到 Image Texture 节点已经接在 Principled BSDF 的 Base Color 上。
 
 坐标与编辑提示
   · 底板厚度、文字厚度、肖像位凹深都在脚本顶部的常量里，直接改数值即可
@@ -1073,19 +1220,12 @@ export interface ModelBundle {
   stats: Nameplate3DScene['stats'] & { bytes: number }
 }
 
-function pngBytes(image: RgbaImage): Uint8Array {
-  const base64 = rgbaToDataUrl(image).split(',')[1]
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
-
 export function buildNameplate3dZip(scene: Nameplate3DScene): ModelBundle {
   const { obj, mtl } = sceneToObj(scene)
   const files: Record<string, Uint8Array | string> = {
     '导入说明.txt': README,
     'blender/build_nameplate_3d.py': sceneToBlenderScript(scene),
+    'nameplate.glb': sceneToGlb(scene),
     'nameplate.gltf': sceneToGltf(scene),
     'nameplate.obj': obj,
     'nameplate.mtl': mtl,
