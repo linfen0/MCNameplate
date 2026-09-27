@@ -122,6 +122,24 @@ function makeBlockTexture() {
   return PNG.sync.write(png)
 }
 
+/** 造一块“黑白竖条”的花底贴图：任何单色文字都读不清，用来触发同色系柔化底（scrim） */
+function makeStripedTexture() {
+  const png = new PNG({ width: 16, height: 16 })
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const i = (y * 16 + x) * 4
+      // 外圈一圈中性灰边框，内部按列交替纯黑 / 纯白
+      const ring = x === 0 || y === 0 || x === 15 || y === 15
+      const base = ring ? [128, 128, 128] : x % 2 === 0 ? [10, 10, 10] : [242, 242, 242]
+      png.data[i] = base[0]
+      png.data[i + 1] = base[1]
+      png.data[i + 2] = base[2]
+      png.data[i + 3] = 255
+    }
+  }
+  return PNG.sync.write(png)
+}
+
 /* ------------------------------------------------------------------ */
 /* 2. 浏览器内像素分析                                                  */
 /* ------------------------------------------------------------------ */
