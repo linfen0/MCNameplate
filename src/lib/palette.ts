@@ -265,8 +265,12 @@ export interface TextCandidate {
   distance: number
 }
 
-/** 中性色的彩度上限：保留底色的色相倾向，又不跟底纹抢戏 */
-export const NEUTRAL_MAX_CHROMA = 0.12
+/**
+ * 中性色的彩度上限。
+ * 太低（0.12 那种）在明度高时看上去就是"接近白的灰"，用户会直接说"文字又变纯白了"；
+ * 0.2 能让派生出来的文字色仍然看得出底色是金 / 是绿 / 是紫，又不会跟底纹抢戏。
+ */
+export const NEUTRAL_MAX_CHROMA = 0.2
 
 /**
  * 「够用就停」的对比度目标：WCAG AAA。

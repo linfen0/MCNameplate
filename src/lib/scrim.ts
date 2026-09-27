@@ -15,8 +15,8 @@
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
-import { mixHex, relativeLuminance, toneOf, type ToneDirection } from './color'
-import { chooseTextColor, type TextCandidate, type TextChoice } from './palette'
+import { contrastRatio, mixHex, relativeLuminance, toneOf, type ToneDirection } from './color'
+import type { TextCandidate } from './palette'
 import type { Theme } from './themes'
 
 /** 垫层明度：暗底再压暗、亮底再提亮 */
@@ -99,6 +99,52 @@ export interface ScrimInput {
   direction?: ToneDirection
 }
 
+/**
+ * 文字色在"垫过底"的背景上最坏情况的对比度。
+ * 叠加在 sRGB 空间做（与 canvas 的 globalAlpha 一致，不做线性化）。
+ */
+function worstContrast(color: string, background: BackgroundSample, scrim: string, alpha: number): number {
+  return Math.min(
+    contrastRatio(color, mixHex(background.dark, scrim, alpha)),
+    contrastRatio(color, mixHex(background.light, scrim, alpha)),
+  )
+}
+
+/**
+ * 挑一层“够用就停”的柔化底。
+ *
+ * 打分顺序是**先看文字色改动了多少，再看垫层多重**：
+ * 宁可把垫层垫到 44%，也不把文字一路推成"接近白的灰"——
+ * 用户看到的应该是自己材质的颜色（色卡附近那几档），而不是一块白。
+ */
+export function chooseScrim(input: ScrimInput): ScrimPlan {
+  const { tint, background, minContrast, maxAlpha = 0.86 } = input
+  const direction: ToneDirection = input.direction ?? (background.lightBackground ? 'light' : 'dark')
+  const color = scrimTone(tint, direction)
+  const alphas = SCRIM_ALPHAS.filter((step) => step <= maxAlpha)
+  const ordered = [...input.candidates].sort(
+    (a, b) => a.distance - b.distance || relativeLuminance(b.color) - relativeLuminance(a.color),
+  )
+  let best: ScrimPlan | null = null
+  for (const candidate of ordered) {
+    for (const alpha of alphas) {
+      const contrast = worstContrast(candidate.color, background, color, alpha)
+      const plan: ScrimPlan = {
+        color,
+        direction,
+        alpha,
+        contrast,
+        text: candidate.color,
+        textDistance: candidate.distance,
+        meetsStandard: contrast >= minContrast,
+      }
+      if (plan.meetsStandard) return plan
+      if (!best || plan.contrast > best.contrast) best = plan
+    }
+  }
+  // 最重的一档也救不回来：如实返回（上层会改用同族暗色文字）
+  return best as ScrimPlan
+}
 /** sRGB 空间按 alpha 叠加（与 canvas 的 globalAlpha 行为一致，不做线性化） */
 function over(background: string, color: string, alpha: number): number {
   return relativeLuminance(mixHex(background, color, alpha))
@@ -108,28 +154,3 @@ function over(background: string, color: string, alpha: number): number {
  * 挑一层“够用就停”的柔化底：从最轻的强度往上试，只要最坏情况（最暗 / 最亮像素）
  * 下的文字对比度达标就停 —— 尽量少盖住用户贴图。
  */
-export function chooseScrim(input: ScrimInput): ScrimPlan {
-  const { tint, background, candidates, minContrast, maxAlpha = 0.86 } = input
-  const direction: ToneDirection = input.direction ?? (background.lightBackground ? 'light' : 'dark')
-  const color = scrimTone(tint, direction)
-  let plan: ScrimPlan | null = null
-  for (const alpha of SCRIM_ALPHAS.filter((step) => step <= maxAlpha)) {
-    const choice: TextChoice = chooseTextColor(
-      candidates,
-      { low: over(background.dark, color, alpha), high: over(background.light, color, alpha) },
-      minContrast,
-    )
-    plan = {
-      color,
-      direction,
-      alpha,
-      contrast: choice.contrast,
-      text: choice.color,
-      textDistance: choice.distance,
-      meetsStandard: choice.meetsStandard,
-    }
-    if (plan.meetsStandard) return plan
-  }
-  // SCRIM_ALPHAS 非空：走到这里说明最重的一档也没达标，如实返回（上层会改用同族暗色文字）
-  return plan as ScrimPlan
-}
