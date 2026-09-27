@@ -47,6 +47,7 @@ src/
 │  └─ useImagePaste.ts               Ctrl/⌘+V 粘贴皮肤
 ├─ features/nameplate/
 │  ├─ config.ts                      配置模型、宽高比预设、默认值
+│  ├─ theme.ts                       主题解析（内置 / 由贴图现场推导，带缓存）
 │  ├─ layout.ts                      名牌几何（纯函数，可单测）
 │  ├─ headGeometry.ts                3D 投影几何（纯数学，布局与渲染共用）
 │  ├─ resolve.ts                     「自适应宽高比」等语义化设置解析
@@ -64,6 +65,7 @@ src/
 │  ├─ raster.ts                      RGBA 位图原语（裁切 / 合成 / 统计）
 │  ├─ textures.ts                    程序化面板纹理（按面板尺寸生成，不平铺）
 │  ├─ themes.ts                      底色主题数据表
+│  ├─ palette.ts                     从方块贴图提取配色 + 推导整套主题
 │  ├─ pixelFont.ts                   像素字体：原生点阵渲染 + 整数倍放大 + 适配倍率
 │  ├─ imageIo.ts                     File / dataURL / canvas 互转、下载、剪贴板
 │  └─ color.ts                       颜色工具
@@ -126,11 +128,26 @@ three.js 首次渲染前会异步加载，未就绪时自动回退 2D。
 > 授权说明：Mojangles 是 Mojang 的字体，这里按需求从官方资源烘焙成点阵使用；
 > 项目自身附带的 Silkscreen / Press Start 2P 为 SIL OFL 1.1。
 
-**5. 背景不平铺**
+**5. 底色：内置主题 + 贴图驱动的自定义主题**
+
+内置 6 个主题是数据表（程序化生成，无外部素材）。第 7 项「自定义纹理」面向 Mod：
+
+- 拖入**任意方块贴图**（原版材质包或 Mod 的 `assets/.../textures/block/*.png`），一次可多张，点选切换；
+- 程序用 `src/lib/palette.ts` **从贴图里提取配色**：
+  - 4bit/通道量化统计主色 → `base`（占比最高）
+  - 从有足够占比的主色簇里挑最亮/最暗 → `light` / `dark`
+    （不用裸亮度分位：80% 是中间调时 85 分位仍然是中间调）
+  - 按饱和度 × √占比挑 `accent`，另给 `average` 与平均亮度
+  - 文字色按对比度自动选深/浅，描边色取反侧，外框与肖像位由主色推导明暗
+- 提取结果会直接显示在界面上（配色条 + 每个色值），并可用滑杆调「1 纹理像素 = N 格」；
+- 提取出的主题会随 SVG / 3D 导出一起走：底纹被烘成与面板同尺寸的一整块贴图，
+  因此 SVG 用 `<pattern>`、3D 用普通贴图即可，不需要 UV repeat 或 `KHR_texture_transform`。
+
+**6. 背景不平铺**
 按面板的纹理像素尺寸（`铭牌高度 / 256` 为一格）整块生成，顶部草皮只有一条，
 因此不会出现小方块平铺造成的横向条纹。
 
-**6. 渲染路径可观测**
+**7. 渲染路径可观测**
 `canvas.dataset.renderMode` 会标记 `3d` / `2d` / `none`，e2e 与调试都据此断言，
 确保实际跑的是 three.js 而不是回退分支。
 
@@ -185,7 +202,7 @@ ID文字  每个字符一个对象（点阵逐段挤出，带真实厚度）
 ## 测试与验证
 
 ```bash
-npm run test            # 115 个单元测试
+npm run test            # 139 个单元测试
 npm run check           # 一条命令：类型检查 + 单元测试 + 构建 + 端到端视觉验证
 npm run validate:gltf   # 用 Khronos 官方校验器检查 3D 包里的 glTF / GLB
 npm run verify:visual   # 只跑端到端视觉验证（会自动先构建）
@@ -200,6 +217,7 @@ npm run verify:visual   # 只跑端到端视觉验证（会自动先构建）
 **ID 字高占铭牌高度的比例**、文字横向利用率、头像落点与高度占比、3D 路径标记、
 头像轮廓宽高比、贴图是否被左右镜像（测试皮肤带左右标记）、2D 模式边缘是否存在半透明过渡、
 **ID 区域内是否存在抗锯齿灰边**（用来抓"字体静默回退"这类回归）、
+**上传方块贴图后底色确实换成该贴图**（采样画布像素与贴图主色比对）、
 **SVG 的图层结构与回渲染一致性**（把导出的 SVG 重新渲染成图并留档对比）、
 **3D 模型包**：解压校验文件清单、OBJ 对象/三角面数、glTF/GLB 结构与 buffer 长度、
 **Khronos 官方 glTF-Validator 0 error / 0 warning**、`python3 -m py_compile` 对 Blender 脚本做真实语法检查，

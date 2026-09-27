@@ -125,7 +125,7 @@ export function GuidePage() {
             </p>
           </div>
           <div className="space-y-2">
-            <p className="mc-label">底色主题</p>
+            <p className="mc-label">内置底色主题</p>
             <ul className="space-y-1 font-sans text-xs text-ink-300">
               {THEMES.map((theme) => (
                 <li key={theme.id}>
@@ -133,6 +133,22 @@ export function GuidePage() {
                 </li>
               ))}
             </ul>
+            <p className="mc-label pt-2">自定义纹理（兼容 Mod）</p>
+            <Line>
+              拖入任意方块贴图——原版材质包或 Mod 的 <Code>assets/…/textures/block/*.png</Code> 都行，
+              一次可多张、点选切换。程序会<b className="text-ink-100">从贴图里提取配色</b>并直接套用：
+            </Line>
+            <ul className="space-y-1 font-sans text-xs text-ink-300">
+              <li>· 主色 base：4bit 量化后占比最高的颜色</li>
+              <li>· 亮部 / 暗部：从有足够占比的主色簇里挑最亮、最暗（不是裸亮度分位）</li>
+              <li>· 强调 accent：最饱和的颜色，用作黄金辅助线</li>
+              <li>· 文字色与描边：按与底色的对比度自动选深/浅，任何贴图上都读得清</li>
+              <li>· 外框、肖像位凹槽：由主色推导出各自的明暗三层</li>
+            </ul>
+            <Line>
+              提取结果会直接列出来（配色条 + 色值），还能用「纹理缩放」控制一个纹理像素占几格。
+              贴图为透明处会填成深色，不会出现黑洞。
+            </Line>
           </div>
         </div>
       </Panel>

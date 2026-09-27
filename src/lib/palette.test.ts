@@ -125,7 +125,7 @@ describe('自定义贴图作为面板底纹', () => {
     setPixel(image, 1, 0, [0, 255, 0, 255])
     setPixel(image, 0, 1, [0, 0, 255, 255])
     setPixel(image, 1, 1, [255, 255, 0, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 2 }, 8, 8)
+    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 2 }, 8, 8, 1)
     expect(tiled.width).toBe(8)
     expect(tiled.height).toBe(8)
     const at = (x: number, y: number) => {
@@ -145,7 +145,7 @@ describe('自定义贴图作为面板底纹', () => {
 
   it('贴图小于面板时按平铺重复', () => {
     const image = solid(2, 2, [10, 20, 30, 255])
-    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 1 }, 8, 8)
+    const tiled = renderPanelTexture({ kind: 'custom', image, texelScale: 1 }, 8, 8, 1)
     const at = (x: number, y: number) => tiled.data[(y * 8 + x) * 4]
     // 横向平铺重复：x=6 与 x=0 取到同一源像素
     expect(at(0, 0)).toBe(at(6, 0))
