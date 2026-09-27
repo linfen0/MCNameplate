@@ -89,7 +89,7 @@ export function NameplatePreview({
           >
             {result.textStyle.contrast.toFixed(1)}:1{' '}
             {result.textStyle.contrast >= result.textStyle.threshold
-              ? `（WCAG AA ${result.textStyle.largeText ? '大字 3:1' : '正文 4.5:1'} ✓）`
+              ? `（WCAG AA ✓ · ${result.textStyle.largeText ? '大字 3:1' : '正文 4.5:1'}）`
               : '（低于 AA）'}
           </span>{' '}
           ·{' '}

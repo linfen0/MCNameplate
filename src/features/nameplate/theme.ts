@@ -29,7 +29,7 @@ export function withTextStyle(theme: Theme, style?: TextStyle | null): Theme {
   if (!style) return theme
   return {
     ...theme,
-    text: { fill: style.fill, outline: style.outline, shadow: theme.text.shadow },
+    text: { fill: style.fill, outline: style.outline, shadow: style.shadow ?? theme.text.shadow },
   }
 }
 

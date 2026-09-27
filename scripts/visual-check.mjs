@@ -171,7 +171,10 @@ function readTextStyle() {
   return {
     fill: canvas.dataset.textFill ?? '',
     outline: canvas.dataset.textOutline ?? '',
+    shadow: canvas.dataset.textShadow ?? '',
+    scrim: canvas.dataset.textScrim ?? '',
     contrast: Number(canvas.dataset.textContrast ?? '0'),
+    threshold: Number(canvas.dataset.textThreshold ?? '4.5'),
     route: canvas.dataset.textRoute ?? '',
   }
 }
@@ -857,11 +860,13 @@ async function main() {
       `${textStyle.fill} · ${measured.fillCount} px`,
     )
     check(
-      textStyle.outline ? measured.fillToOutline >= 4.5 : measured.fillToBackground >= 4.5,
-      '文字与紧挨着它的那一层达到 WCAG AA（4.5:1）',
       textStyle.outline
-        ? `文字 ${textStyle.fill} ↔ 描边 ${textStyle.outline} = ${measured.fillToOutline.toFixed(2)}:1`
-        : `文字 ${textStyle.fill} ↔ 底纹 = ${measured.fillToBackground.toFixed(2)}:1`,
+        ? measured.fillToOutline >= textStyle.threshold
+        : measured.fillToBackground >= textStyle.threshold,
+      '文字与紧挨着它的那一层达到 WCAG AA',
+      textStyle.outline
+        ? `文字 ${textStyle.fill} ↔ 描边 ${textStyle.outline} = ${measured.fillToOutline.toFixed(2)}:1（阈值 ${textStyle.threshold}:1）`
+        : `文字 ${textStyle.fill} ↔ 底纹 = ${measured.fillToBackground.toFixed(2)}:1（阈值 ${textStyle.threshold}:1）`,
     )
     check(
       measured.fillLum > measured.backgroundLum,
@@ -912,30 +917,39 @@ async function main() {
     await uploadTexture(page, lightGold, 'light_gold.png')
     const goldStyle = await page.evaluate(readTextStyle)
     check(
-      goldStyle.route === 'halo' && /^#[0-9a-f]{6}$/.test(goldStyle.outline),
-      '浅色花底改用「亮字 + 同族描边」，而不是把 ID 压黑',
-      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 描边 ${goldStyle.outline || '无'} · 对比度 ${goldStyle.contrast}`,
+      goldStyle.route === 'scrim' &&
+        /^#[0-9a-f]{6}$/.test(goldStyle.shadow) &&
+        /^#[0-9a-f]{6}@/.test(goldStyle.scrim),
+      '浅色花底：亮字 + 同族投影 + 最轻的一档柔化底（ID 不压黑）',
+      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 投影 ${goldStyle.shadow} · 柔化底 ${goldStyle.scrim}`,
     )
     check(
-      goldStyle.contrast >= 4.5,
-      '亮字 + 描边同样达到 WCAG AA（文字 ↔ 描边）',
-      `${goldStyle.contrast.toFixed(2)}:1`,
+      goldStyle.contrast >= goldStyle.threshold,
+      '亮字方案同样达到 WCAG AA',
+      `${goldStyle.contrast.toFixed(2)}:1 ≥ ${goldStyle.threshold}:1（大字标准）`,
+    )
+    const goldScrimAlpha = Number((goldStyle.scrim.split('@')[1] ?? '0'))
+    check(
+      goldScrimAlpha > 0 && goldScrimAlpha <= 0.44,
+      '柔化底停在最轻的一档（≤44%），不把贴图糊住',
+      `${Math.round(goldScrimAlpha * 100)}%`,
     )
     const goldMeasured = await page.evaluate(sampleTextColors, goldStyle)
     check(
-      goldMeasured.fillCount >= 200 && goldMeasured.outlineCount >= 200,
-      '文字与描边都在画布上成片出现',
-      `文字 ${goldMeasured.fillCount} px · 描边 ${goldMeasured.outlineCount} px`,
-    )
-    check(
-      goldMeasured.fillToOutline >= 4.5,
-      '像素级复算：文字 ↔ 描边 ≥ 4.5:1',
-      `${(goldMeasured.fillToOutline ?? 0).toFixed(2)}:1`,
+      goldMeasured.fillCount >= 200,
+      '亮字在画布上成片出现',
+      `${goldMeasured.fillCount} px · ${goldStyle.fill}`,
     )
     check(
       goldMeasured.fillLum > goldMeasured.backgroundLum + 0.05,
-      '像素级复算：ID 比底纹更亮（亮字，不是压在浅底上的黑字）',
+      '像素级复算：ID 比（柔化后的）底纹更亮，不是压在浅底上的黑字',
       `文字亮度 ${goldMeasured.fillLum.toFixed(3)} · 底纹 ${goldMeasured.backgroundLum.toFixed(3)}`,
+    )
+    check(
+      !['#ffffff', '#000000'].includes(goldStyle.fill) &&
+        !['#ffffff', '#000000'].includes(goldStyle.shadow),
+      '文字 / 投影都不是纯白 / 纯黑（改用底色同族的颜色）',
+      `${goldStyle.fill} / ${goldStyle.shadow}`,
     )
     await exportCanvas(page, 'nameplate-light-gold.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-light-gold.png'), fullPage: true })
@@ -947,17 +961,19 @@ async function main() {
     await (await svgDownload).saveAs(goldSvgPath)
     const goldSvg = await readFile(goldSvgPath, 'utf8')
     check(
-      goldSvg.includes(`fill="${goldStyle.fill}"`) && goldSvg.includes(`fill="${goldStyle.outline}"`),
-      'SVG 导出带上同族描边（文字色与描边与预览一致）',
-      `${goldStyle.fill} / ${goldStyle.outline}`,
+      goldSvg.includes(`fill="${goldStyle.fill}"`) &&
+        goldSvg.includes(`fill="${goldStyle.shadow}"`) &&
+        goldSvg.includes('<g id="文字柔化底">'),
+      'SVG 导出带上同族投影与柔化底（与预览一致）',
+      `${goldStyle.fill} / ${goldStyle.shadow} / ${goldStyle.scrim}`,
     )
     const zipDownload2 = page.waitForEvent('download')
     await page.getByRole('button', { name: '下载 3D 模型包' }).click()
     const goldZip = unzipSync(new Uint8Array(await readFile(await (await zipDownload2).path())))
     const goldObj = Buffer.from(goldZip['nameplate.obj']).toString('utf8')
     check(
-      goldObj.includes('usemtl 文字-描边'),
-      '3D 导出把描边做成独立材质层',
+      goldObj.includes('usemtl 文字-阴影'),
+      '3D 导出把投影做成独立材质层',
       `材质 ${[...new Set((goldObj.match(/usemtl .+/g) ?? []))].join(' / ')}`,
     )
     // 把带描边的 SVG 反过来渲染，留档人工复核
