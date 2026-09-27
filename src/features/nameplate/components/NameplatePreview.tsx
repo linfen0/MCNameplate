@@ -80,17 +80,28 @@ export function NameplatePreview({
       {result ? (
         <p className="font-sans text-xs leading-relaxed text-ink-300">
           {config.aspect === 'auto' ? '自适应' : '固定'}宽高比 {size.width}×{size.height} · ID 文本放大{' '}
-          {result.textScale}× · 文字色 <code className="font-mono text-[11px]">{result.textFill}</code> 对比度{' '}
-          <span className={result.textContrast >= 4.5 ? 'text-grass-400' : 'text-gold-400'}>
-            {result.textContrast.toFixed(1)}:1 {result.textContrast >= 4.5 ? '（WCAG AA ✓）' : '（低于 AA）'}
+          {result.textScale}× · 文字色{' '}
+          <code className="font-mono text-[11px]">{result.textStyle.fill}</code> 对比度{' '}
+          <span className={result.textStyle.contrast >= 4.5 ? 'text-grass-400' : 'text-gold-400'}>
+            {result.textStyle.contrast.toFixed(1)}:1{' '}
+            {result.textStyle.contrast >= 4.5 ? '（WCAG AA ✓）' : '（低于 AA）'}
           </span>{' '}
           ·{' '}
-          {result.textDistance === 0
+          {result.textStyle.route === 'halo'
+            ? `加同族描边 ${result.textStyle.outline}${
+                result.textStyle.outlineContrast !== null
+                  ? `（描边与底纹 ${result.textStyle.outlineContrast.toFixed(1)}:1）`
+                  : ''
+              }`
+            : result.textStyle.route === 'scrim'
+              ? `垫同色系柔化底 ${result.textStyle.scrim?.color ?? ''} @ ${Math.round(
+                  (result.textStyle.scrim?.alpha ?? 0) * 100,
+                )}%`
+              : '直接压在底纹上'}{' '}
+          ·{' '}
+          {result.textStyle.distance === 0
             ? '取色卡原色'
-            : `取色卡派生档 ${result.textDistance}/4`}
-          {result.textScrim
-            ? ` · 已垫同色系柔化底 ${result.textScrim.color} @ ${Math.round(result.textScrim.alpha * 100)}%`
-            : ' · 未动底纹'}{' '}
+            : `取色卡派生档 ${result.textStyle.distance}/6`}{' '}
           ·{' '}
           {result.hasSkin
             ? `头像 ${result.head3d ? 'three.js 3D 立体' : config.headStyle === 'iso' ? '3D 不可用，已回退 2D' : '2D 正面'}`

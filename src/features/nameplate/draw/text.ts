@@ -13,22 +13,12 @@ import {
 import type { Theme } from '../../../lib/themes'
 import type { NameplateConfig } from '../config'
 import { relativeLuminance, rgbaToHex } from '../../../lib/color'
-import {
-  buildTextCandidates,
-  chooseTextColor,
-  MIN_TEXT_CONTRAST,
-  type TextChoice,
-} from '../../../lib/palette'
-import {
-  chooseScrim,
-  scrimTintOf,
-  type BackgroundSample,
-  type ScrimPlan,
-} from '../../../lib/scrim'
+import { planText, type TextStyle } from '../../../lib/textPlan'
+import { scrimTintOf, type BackgroundSample, type ScrimPlan } from '../../../lib/scrim'
 import type { LayoutPlan } from '../layout'
 import { idDisplayText } from '../resolve'
 
-export { MIN_TEXT_CONTRAST }
+export { MIN_TEXT_CONTRAST } from '../../../lib/textPlan'
 
 interface Rect {
   x: number
@@ -101,16 +91,10 @@ export interface IdTextResult {
   /** 最终放大倍率（1 字体像素 = scale 个画布像素） */
   scale: number
   placeholder: boolean
-  /** 实际使用的文字色 */
-  fill: string
-  /** 实际使用的描边色 */
+  /** 实际使用的描边色；null 表示没描边 */
   shadow: string | null
-  /** 实测达到的 WCAG 对比度（1:1 ~ 21:1） */
-  contrast: number
-  /** 文字色离用户色卡有多远（0 = 就是色卡原色） */
-  distance: number
-  /** 为了达标而垫的柔化底；null 表示没垫 */
-  scrim: ScrimPlan | null
+  /** 完整的文字配色方案（亮字 / 描边 / 柔化底） */
+  style: TextStyle
 }
 
 export function drawIdText(
@@ -126,56 +110,39 @@ export function drawIdText(
   const shadow = shadowColor ? { color: shadowColor, offset: 1 } : null
 
   // 1) 先排版。文字块的尺寸只取决于字体 / 文本 / 描边，与颜色无关，
-  //    所以可以先用主题色量出尺寸，再据此只在“文字真正压住的那块像素”上采样。
-  const metrics = measureTextBlock({ text, font, fill: theme.text.fill, shadow })
+  //    这里按“可能需要描边”的留白量一次尺寸（描边 1 原生像素），
+  //    采样矩形、缩放倍率、描边与文字块都用同一份，前后不会错位。
+  const samplingMetrics = measureTextBlock({ text, font, fill: theme.text.fill, shadow })
   const scale = fitTextScale(createMeasure(font), text, {
     maxWidth: plan.idBox.width,
     maxHeight: plan.idBox.height,
-    lineHeight: metrics.lineHeight,
-    padding: metrics.padding,
+    lineHeight: samplingMetrics.lineHeight,
+    padding: samplingMetrics.padding,
     maxScale: 256,
   })
-  const placement = placeTextBlock({ image: metrics }, plan.idBox, scale, 'center', 'middle')
+  const placement = placeTextBlock({ image: samplingMetrics }, plan.idBox, scale, 'center', 'middle')
 
   // 2) 采样文字背后的真实像素
   const background = sampleBackground(ctx, placement)
 
-  // 3) 先在“文字这一侧”解决对比度：色卡原色 → 同族中性色档位 → AA 兜底档。
-  //    达标者里挑改动最小的一档，保留用户贴图的色相；全程不会出现纯白 / 纯黑。
+  // 3) 亮字优先 → 不够加同族描边 → 最后才垫柔化底（见 lib/textPlan）
   const swatches = theme.palette
     ? [theme.palette.light, theme.palette.accent, theme.palette.dark, theme.palette.base]
     : [theme.text.fill]
-  const candidates = buildTextCandidates(swatches, background.lightBackground)
-  let choice: TextChoice = chooseTextColor(
-    candidates,
-    { low: relativeLuminance(background.dark), high: relativeLuminance(background.light) },
-    MIN_TEXT_CONTRAST,
-  )
+  const style = planText({ swatches, background, tint: scrimTintOf(theme) })
+  if (style.scrim) drawScrim(ctx, plan, style.scrim, placement)
 
-  // 4) 只有连同族中性色档都够不着 4.5:1（例如同时有很亮和很暗的底纹）才垫底，
-  //    而且垫的是“底色同族的柔化层”，不是纯黑补丁。
-  let scrim: ScrimPlan | null = null
-  if (!choice.meetsStandard) {
-    scrim = chooseScrim({
-      tint: scrimTintOf(theme),
-      background,
-      candidates,
-      minContrast: MIN_TEXT_CONTRAST,
-    })
-    drawScrim(ctx, plan, scrim, placement)
-    choice = {
-      color: scrim.text,
-      contrast: scrim.contrast,
-      distance: scrim.textDistance,
-      meetsStandard: scrim.meetsStandard,
-    }
-  }
-
-  const usedShadow = shadow && shadow.color !== choice.color ? shadow : null
+  // 有描边时不再叠投影：描边已经给了轮廓，再来个投影只会糊成一团
+  const usedShadow = style.outline
+    ? null
+    : shadow && shadow.color !== style.fill
+      ? shadow
+      : null
   const block = renderTextBlock({
     text,
     font,
-    fill: choice.color,
+    fill: style.fill,
+    outline: style.outline,
     shadow: usedShadow,
     opacity: placeholder ? 0.4 : 1,
   })
@@ -184,11 +151,8 @@ export function drawIdText(
     text,
     scale,
     placeholder,
-    fill: choice.color,
-    shadow: usedShadow ? usedShadow.color : null,
-    contrast: choice.contrast,
-    distance: choice.distance,
-    scrim,
+    shadow: style.outline ?? (usedShadow ? usedShadow.color : null),
+    style,
   }
 }
 

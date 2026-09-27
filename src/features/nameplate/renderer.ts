@@ -7,7 +7,7 @@
  */
 
 import { isGoldenRatio, summarizeBlocks, type RatioSummary } from '../../lib/golden'
-import type { ScrimPlan } from '../../lib/scrim'
+import type { TextStyle } from '../../lib/textPlan'
 import { getPixelFont } from '../../lib/pixelFont'
 import { extractHead, extractHeadCube } from '../../lib/skin'
 import { resolveTheme } from './theme'
@@ -29,14 +29,8 @@ export interface RenderResult {
   headScale: number
   /** ID 放大倍率 */
   textScale: number
-  /** 实际使用的文字色（可能为了对比度从色卡里换过） */
-  textFill: string
-  /** 实测达到的 WCAG 对比度 */
-  textContrast: number
-  /** 文字色离用户色卡有多远（0 = 就是色卡原色） */
-  textDistance: number
-  /** 为达标额外垫的同色系柔化底；null 表示没垫 */
-  textScrim: ScrimPlan | null
+  /** 文字配色方案（亮字 / 同族描边 / 柔化底），导出时与画布保持一致 */
+  textStyle: TextStyle
   /** ID 为空，画布上是占位文字 */
   placeholderId: boolean
   /** 是否成功绘制了皮肤头像 */
@@ -109,10 +103,7 @@ export function renderNameplate(
     height: layout.height,
     headScale: layout.headScale,
     textScale: idResult.scale,
-    textFill: idResult.fill,
-    textContrast: idResult.contrast,
-    textDistance: idResult.distance,
-    textScrim: idResult.scrim,
+    textStyle: idResult.style,
     placeholderId: idResult.placeholder,
     hasSkin,
     head3d,

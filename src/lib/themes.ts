@@ -21,8 +21,11 @@ export interface Theme {
   slot: ThemeColorSet | null
   /** 外框三层配色 */
   frame: ThemeColorSet
-  /** 文字配色 */
-  text: { fill: string; shadow: string | null }
+  /**
+   * 文字配色。
+   * outline = 同族描边：浅色 / 花底纹上「亮字 + 一圈暗描边」比把字压黑和谐得多。
+   */
+  text: { fill: string; shadow: string | null; outline?: string | null }
   divider: string
   /** 黄金分割辅助线颜色 */
   guide: string

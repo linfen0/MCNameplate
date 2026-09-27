@@ -38,8 +38,9 @@ import {
 } from './headGeometry'
 import { computeNameplateLayout, type LayoutPlan } from './layout'
 import { resolveAspect } from './resolve'
+import type { TextStyle } from '../../lib/textPlan'
 import { layoutIdText } from './textLayout'
-import { resolveTheme } from './theme'
+import { resolveTheme, withTextStyle } from './theme'
 
 /* ------------------------------------------------------------------ */
 /* 纯几何 → SVG 片段                                                    */
@@ -134,6 +135,8 @@ export interface SvgTextInput {
   block: TextBlock
   scale: number
   placement: TextPlacement
+  /** 是否带同族描边：切分字符图层时要多留出描边的那一列 */
+  outline?: boolean
 }
 
 /**
@@ -141,7 +144,7 @@ export interface SvgTextInput {
  * 通过“按字符切片文字块位图”实现，阴影/描边都保留在同一字符分组里。
  */
 export function svgTextGroup(font: PixelFontSpec, input: SvgTextInput): string {
-  const { text, block, scale, placement } = input
+  const { text, block, scale, placement, outline = false } = input
   const metrics = measureText(font, text, 0)
   void metrics
   const groups: string[] = []
@@ -156,9 +159,11 @@ export function svgTextGroup(font: PixelFontSpec, input: SvgTextInput): string {
       pen += advance
       return
     }
-    // 向右多取 1 列，把 1 像素的阴影带进本字符的图层
-    const from = pen + block.padding
-    const to = from + advance + 1
+    // 向右多取 1 列，把 1 像素的阴影带进本字符的图层；
+    // 有描边时左右各多出 1 列，也要带进来
+    const lead = outline ? 1 : 0
+    const from = pen + block.padding - lead
+    const to = outline ? from + advance + 2 : pen + advance + 1
     const runs = pixelRuns(block.image, from, to)
     pen += advance
     if (runs.length === 0) return
@@ -407,7 +412,11 @@ function escapeXml(value: string): string {
 /* 浏览器侧：取素材并组装                                               */
 /* ------------------------------------------------------------------ */
 
-export function buildNameplateSvg(skin: ParsedSkin | null, config: NameplateConfig): string {
+export function buildNameplateSvg(
+  skin: ParsedSkin | null,
+  config: NameplateConfig,
+  style?: TextStyle | null,
+): string {
   const layout = computeNameplateLayout({
     height: config.height,
     aspect: resolveAspect(config),
@@ -418,11 +427,12 @@ export function buildNameplateSvg(skin: ParsedSkin | null, config: NameplateConf
     avatarFill: config.avatarFill,
     showDivider: config.showDivider,
   })
-  const theme = resolveTheme(config)
+  // 文字配色优先用预览里已经算好的那一份，保证「看到的 = 导出的」
+  const theme = withTextStyle(resolveTheme(config), style)
   const font = getPixelFont(config.fontId)
 
   // 文字（与画布渲染、3D 导出共用同一份排版）
-  const { text, block, scale, placement } = layoutIdText(font, theme, config, layout.idBox)
+  const { text, block, scale, placement, outline } = layoutIdText(font, theme, config, layout.idBox)
 
   // 背景纹理
   let background: SvgBackgroundImage | null = null
@@ -475,7 +485,7 @@ export function buildNameplateSvg(skin: ParsedSkin | null, config: NameplateConf
     theme,
     font,
     config,
-    text: { text, block, scale, placement },
+    text: { text, block, scale, placement, outline: outline !== null },
     background,
     avatar,
   })

@@ -23,6 +23,8 @@ export interface IdTextLayout {
   block: TextBlock
   scale: number
   placement: TextPlacement
+  /** 同族描边色；null 表示没描边 */
+  outline: string | null
 }
 
 export function layoutIdText(
@@ -33,11 +35,14 @@ export function layoutIdText(
 ): IdTextLayout {
   const placeholder = config.id.trim().length === 0
   const text = idDisplayText(config)
+  const outline = theme.text.outline ?? null
   const block = renderTextBlock({
     text,
     font,
     fill: theme.text.fill,
-    shadow: config.shadow && theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null,
+    outline,
+    // 有描边就不再叠投影：描边已经给了轮廓
+    shadow: !outline && config.shadow && theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null,
     opacity: placeholder ? 0.4 : 1,
   })
   const scale = fitTextScale(createMeasure(font), text, {
@@ -48,5 +53,5 @@ export function layoutIdText(
     maxScale: 256,
   })
   const placement = placeTextBlock(block, idBox, scale, 'center', 'middle')
-  return { text, placeholder, block, scale, placement }
+  return { text, placeholder, block, scale, placement, outline }
 }

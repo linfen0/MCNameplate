@@ -4,6 +4,7 @@
  */
 
 import { buildThemeFromTexture, type ExtractedPalette } from '../../lib/palette'
+import { planText } from '../../lib/textPlan'
 import { DEFAULT_THEME_ID, getTheme, type Theme } from '../../lib/themes'
 import type { RgbaImage } from '../../lib/types'
 import type { NameplateConfig } from './config'
@@ -32,13 +33,25 @@ export function resolveTheme(config: NameplateConfig): Theme {
   const hit = cached?.get(key)
   if (hit) return hit
 
-  const theme = buildThemeFromTexture(custom.image, {
+  const base = buildThemeFromTexture(custom.image, {
     fillMode: config.textureFillMode,
     texelScale: config.textureTexelScale,
     slice: config.textureSlice,
     name: custom.name,
     description: `「${custom.name}」配色：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
   })
+  // 文字配色和画布走同一套决策（亮字 → 同族描边 → 柔化底），
+  // 这样 SVG / 3D 导出与预览里的颜色完全一致
+  const palette = base.palette!
+  const style = planText({
+    swatches: [palette.light, palette.accent, palette.dark, palette.base],
+    background: { dark: palette.dark, light: palette.light, lightBackground: palette.luminance > 0.32 },
+    tint: palette.base,
+  })
+  const theme: Theme = {
+    ...base,
+    text: { fill: style.fill, outline: style.outline, shadow: base.text.shadow },
+  }
   if (cached) cached.set(key, theme)
   else cache.set(custom.image, new Map([[key, theme]]))
   return theme
