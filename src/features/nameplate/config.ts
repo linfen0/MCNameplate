@@ -4,6 +4,7 @@ import { GOLDEN_MAJOR, GOLDEN_MINOR, PHI } from '../../lib/golden'
 import { DEFAULT_FONT_ID } from '../../lib/pixelFont'
 import { DEFAULT_THEME_ID } from '../../lib/themes'
 import type { AvatarSide, HeadStyle, SplitMode } from './layout'
+import type { TextureFillMode } from '../../lib/palette'
 import { type CustomTexture } from './theme'
 
 /** 宽高比可以是一个固定值，也可以交给布局根据 ID 长度自适应 */
@@ -31,6 +32,10 @@ export interface NameplateConfig {
   themeId: string
   /** 用户上传的方块贴图（themeId === 'custom' 时生效，支持 Mod 贴图） */
   customTexture: CustomTexture | null
+  /** 上传贴图怎么用作底纹：拉伸整张 / 平铺成方块墙 / 只取配色 */
+  textureFillMode: TextureFillMode
+  /** 平铺模式下每个纹理像素占几格（越大方块越大） */
+  textureTexelScale: number
   fontId: string
   uppercase: boolean
   shadow: boolean
@@ -131,6 +136,8 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   avatarFill: 0.92,
   themeId: DEFAULT_THEME_ID,
   customTexture: null,
+  textureFillMode: 'stretch',
+  textureTexelScale: 4,
   fontId: DEFAULT_FONT_ID,
   uppercase: true,
   shadow: true,

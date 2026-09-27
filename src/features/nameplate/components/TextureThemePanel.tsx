@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { Field, PixelButton, PixelChip } from '../../../components/pixel'
+import { ChipRow, Field, PixelButton, PixelChip, PixelSlider } from '../../../components/pixel'
 import { cx } from '../../../lib/cx'
 import { rgbaToCanvas } from '../../../lib/imageIo'
 import { paletteToCssGradient } from '../../../lib/palette'
@@ -131,6 +131,45 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
 
       {active ? (
         <>
+          <Field
+            label="底纹怎么用这张贴图"
+            hint="「整张拉伸」不重复、直接沿用你的纹理；「平铺」按方块尺寸铺成方块墙；「只取配色」用主色派生一块平静的程序化表面。"
+          >
+            <ChipRow>
+              <PixelChip
+                active={config.textureFillMode === 'stretch'}
+                onClick={() => patch({ textureFillMode: 'stretch' })}
+              >
+                整张拉伸（默认）
+              </PixelChip>
+              <PixelChip
+                active={config.textureFillMode === 'tile'}
+                onClick={() => patch({ textureFillMode: 'tile' })}
+              >
+                平铺成方块墙
+              </PixelChip>
+              <PixelChip
+                active={config.textureFillMode === 'palette'}
+                onClick={() => patch({ textureFillMode: 'palette' })}
+              >
+                只取配色
+              </PixelChip>
+            </ChipRow>
+          </Field>
+
+          {config.textureFillMode === 'tile' ? (
+            <PixelSlider
+              label="方块大小"
+              value={config.textureTexelScale}
+              min={1}
+              max={16}
+              step={1}
+              valueText={`1 纹理像素 = ${config.textureTexelScale} 格`}
+              onChange={(value) => patch({ textureTexelScale: value })}
+              hint="数值越大方块越大、重复越少"
+            />
+          ) : null}
+
           <Field label="程序提取的配色" hint={`平均亮度 ${(active.palette.luminance * 100).toFixed(0)}% · 文字色和描边色是按对比度自动选的`}>
             <div className="space-y-2">
               <div
@@ -161,7 +200,7 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
               onClick={() => patch({ themeId: 'custom' })}
               disabled={config.themeId === 'custom'}
             >
-              应用这套配色
+              应用这张贴图
             </PixelButton>
             <PixelButton
               variant="ghost"

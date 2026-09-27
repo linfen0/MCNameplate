@@ -31,6 +31,12 @@ export type PanelTexture =
   | { kind: 'solid'; color: string }
   /** 颗粒石/土底；带 grassTop 时顶部生成一条起伏草皮 */
   | { kind: 'noise'; palette: Palette; grassTop?: Palette }
+  /**
+   * 直接沿用用户上传的方块贴图：
+   *   stretch —— 整张拉伸铺满底板（一次，不重复）
+   *   tile    —— 按 texelScale 平铺成方块墙
+   */
+  | { kind: 'image'; image: RgbaImage; mode: 'stretch' | 'tile'; texelScale: number }
 
 
 /** 面板贴图的像素粒度：每个纹理像素占 unit 个画布像素 */
@@ -56,6 +62,10 @@ export function renderPanelTexture(
 
   if (texture.kind === 'solid') {
     return createImage(w, h, hexToRgba(texture.color))
+  }
+
+  if (texture.kind === 'image') {
+    return renderImageTexture(texture, w, h)
   }
 
   const image = createImage(w, h)
@@ -109,6 +119,45 @@ export function renderPanelTexture(
   return image
 }
 
+/** 直接用上传贴图铺底：拉伸整张，或按方块尺寸平铺 */
+function renderImageTexture(
+  texture: Extract<PanelTexture, { kind: 'image' }>,
+  w: number,
+  h: number,
+): RgbaImage {
+  const source = texture.image
+  const out = createImage(w, h)
+  const scale = Math.max(1, Math.round(texture.texelScale))
+  // 拉伸模式几乎不做后期处理，尽量保留原始贴图的观感
+  const shading = texture.mode === 'stretch' ? 0.06 : 0.1
+
+  for (let y = 0; y < h; y++) {
+    const depth = 1 - shading * (y / Math.max(1, h - 1))
+    for (let x = 0; x < w; x++) {
+      const sx =
+        texture.mode === 'stretch'
+          ? Math.min(source.width - 1, Math.floor((x * source.width) / w))
+          : Math.floor(x / scale) % source.width
+      const sy =
+        texture.mode === 'stretch'
+          ? Math.min(source.height - 1, Math.floor((y * source.height) / h))
+          : Math.floor(y / scale) % source.height
+      const i = (sy * source.width + sx) * 4
+      if (source.data[i + 3] === 0) {
+        setPixel(out, x, y, [24, 26, 30, 255])
+        continue
+      }
+      setPixel(out, x, y, [
+        source.data[i] * depth,
+        source.data[i + 1] * depth,
+        source.data[i + 2] * depth,
+        255,
+      ])
+    }
+  }
+  return out
+}
+
 const cache = new Map<string, RgbaImage>()
 
 /** 带缓存：连续重绘时不必重复生成整块底纹 */
@@ -118,7 +167,11 @@ export function getPanelTexture(
   height: number,
   seed: number,
 ): RgbaImage {
-  const key = `${JSON.stringify(texture)}|${width}x${height}|${seed}`
+  // image 底纹带 ImageData，不能进 JSON key
+  const key =
+    texture.kind === 'image'
+      ? `image|${texture.image.width}x${texture.image.height}|${texture.mode}|${texture.texelScale}|${width}x${height}`
+      : `${JSON.stringify(texture)}|${width}x${height}|${seed}`
   const hit = cache.get(key)
   if (hit) return hit
   const value = renderPanelTexture(texture, width, height, seed)

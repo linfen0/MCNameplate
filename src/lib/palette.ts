@@ -150,7 +150,13 @@ export function extractPalette(image: RgbaImage): ExtractedPalette {
   }
 }
 
+export type TextureFillMode = 'stretch' | 'tile' | 'palette'
+
 export interface TextureThemeOptions {
+  /** 底纹怎么用这张贴图：直接拉伸 / 平铺 / 只取配色 */
+  fillMode?: TextureFillMode
+  /** 平铺模式下每个纹理像素占几格 */
+  texelScale?: number
   /** 主题名（界面展示） */
   name?: string
   /** 主题描述（界面展示） */
@@ -184,15 +190,28 @@ export function buildThemeFromTexture(image: RgbaImage, options: TextureThemeOpt
     dark: darken(palette.base, 0.72),
   }
 
-  // 底纹 = 主色 + 由主色派生的轻微明暗，保证是一块“平静的材质表面”。
-  // 不能把提取出的亮部/暗部色卡直接当噪声三色：一张深底 + 金色点缀的机器贴图
-  // 会让底纹变成满地金点。提取出的亮/暗色卡是用在**外框、凹槽、分割线**这些组件上的。
-  const surface: Palette = {
-    base: palette.base,
-    light: shadeHex(palette.base, 0.1),
-    dark: shadeHex(palette.base, -0.14),
-  }
-  const texture: PanelTexture = { kind: 'noise', palette: surface }
+  // 底纹怎么来由用户选：
+  //   stretch —— 整张贴图拉伸铺满（默认，直接沿用用户纹理，不重复）
+  //   tile    —— 按方块尺寸平铺成方块墙
+  //   palette —— 只取配色，用主色派生一块平静的程序化表面
+  //     （注意：不要拿提取出的亮/暗色卡当噪声三色，深底 + 金色点缀的机器贴图会撒满金点）
+  const mode: TextureFillMode = options.fillMode ?? 'stretch'
+  const texture: PanelTexture =
+    mode === 'palette'
+      ? {
+          kind: 'noise',
+          palette: {
+            base: palette.base,
+            light: shadeHex(palette.base, 0.1),
+            dark: shadeHex(palette.base, -0.14),
+          },
+        }
+      : {
+          kind: 'image',
+          image,
+          mode,
+          texelScale: Math.max(1, Math.round(options.texelScale ?? 1)),
+        }
 
   return {
     id: 'custom',

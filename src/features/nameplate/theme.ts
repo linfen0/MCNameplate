@@ -19,7 +19,7 @@ export interface CustomTexture {
 
 export const CUSTOM_THEME_ID = 'custom'
 
-const cache = new WeakMap<RgbaImage, Theme>()
+const cache = new WeakMap<RgbaImage, Map<string, Theme>>()
 
 export function resolveTheme(config: NameplateConfig): Theme {
   const custom = config.customTexture
@@ -27,13 +27,18 @@ export function resolveTheme(config: NameplateConfig): Theme {
   // 选了自定义但还没上传贴图 → 回退到默认主题，而不是拿到一个随机的内置主题
   if (!custom) return getTheme(DEFAULT_THEME_ID)
 
-  const hit = cache.get(custom.image)
+  const key = `${config.textureFillMode}|${config.textureTexelScale}`
+  const cached = cache.get(custom.image)
+  const hit = cached?.get(key)
   if (hit) return hit
 
   const theme = buildThemeFromTexture(custom.image, {
+    fillMode: config.textureFillMode,
+    texelScale: config.textureTexelScale,
     name: custom.name,
-    description: `由「${custom.name}」提取配色：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
+    description: `「${custom.name}」配色：主色 ${custom.palette.base} · 亮 ${custom.palette.light} · 暗 ${custom.palette.dark}`,
   })
-  cache.set(custom.image, theme)
+  if (cached) cached.set(key, theme)
+  else cache.set(custom.image, new Map([[key, theme]]))
   return theme
 }
