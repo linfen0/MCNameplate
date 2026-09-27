@@ -99,7 +99,17 @@ function makeBlockTexture() {
     for (let x = 0; x < 16; x++) {
       const i = (y * 16 + x) * 4
       const n = (x * 7 + y * 13) % 10
-      const base = n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42]
+      const corner =
+        x === 0 && y === 0
+          ? [255, 0, 0]
+          : x === 15 && y === 0
+            ? [0, 255, 0]
+            : x === 0 && y === 15
+              ? [0, 0, 255]
+              : x === 15 && y === 15
+                ? [255, 255, 0]
+                : null
+      const base = corner ?? (n === 0 ? [138, 92, 52] : n === 9 ? [98, 62, 30] : [122, 79, 42])
       png.data[i] = base[0]
       png.data[i + 1] = base[1]
       png.data[i + 2] = base[2]
@@ -692,37 +702,40 @@ async function main() {
       const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
       const ctx = canvas.getContext('2d')
       const unit = Math.max(1, Math.round(canvas.height / 256))
+      // 内容区起点 = 外框(3u) + 倒角(1u)；倒角本身是外框高光，不能当成贴图来采样
       const inset = 4 * unit
-      // 取面板顶部（文字区之外）的一个点，那里就是纯底纹
       const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const at = (x, y) => {
         const i = (y * canvas.width + x) * 4
         return [data[i], data[i + 1], data[i + 2]]
       }
+      const x0 = inset + 1
+      const y0 = inset + 1
+      const x1 = canvas.width - inset - 2
+      const y1 = canvas.height - inset - 2
       return {
-        top: at(Math.floor(canvas.width * 0.8), inset + 2),
-        theme: canvas.dataset.renderMode,
+        topLeft: at(x0, y0),
+        topRight: at(x1, y0),
+        bottomLeft: at(x0, y1),
+        bottomRight: at(x1, y1),
+        middle: at(Math.floor(canvas.width * 0.85), Math.floor(canvas.height * 0.5)),
       }
     })
-    // 贴图只当取色源：底纹应由提取出的 base/light/dark 程序化生成，
-    // 因此采样点应落在 {主色, 亮部, 暗部} 三者附近，且保持贴图的色相（棕 = r 明显大于 b）
-    const candidates = [
-      [122, 79, 42],
-      [138, 92, 52],
-      [98, 62, 30],
-    ]
-    const nearest = candidates
-      .map((color) => Math.max(...color.map((value, index) => Math.abs(value - sampled.top[index]))))
-      .sort((a, b) => a - b)[0]
+    // 默认九宫格：贴图四角必须原样出现在面板四角（边框不变形）
+    const close = (actual, expected, tolerance = 30) =>
+      expected.every((value, index) => Math.abs(actual[index] - value) <= tolerance)
     check(
-      nearest <= 40,
-      '底纹由提取出的配色生成（不是平铺原图）',
-      `采样 rgb(${sampled.top.join(',')}) 距最近调色板色 ${nearest}`,
+      close(sampled.topLeft, [255, 0, 0]) &&
+        close(sampled.topRight, [0, 255, 0]) &&
+        close(sampled.bottomLeft, [0, 0, 255]) &&
+        close(sampled.bottomRight, [255, 255, 0]),
+      '九宫格：贴图四角原样出现在面板四角（边框未变形）',
+      `TL=${sampled.topLeft} TR=${sampled.topRight} BL=${sampled.bottomLeft} BR=${sampled.bottomRight}`,
     )
     check(
-      sampled.top[0] > sampled.top[2] + 25,
-      '底纹保持了贴图的色相（棕色：r 明显大于 b）',
-      `r=${sampled.top[0]} b=${sampled.top[2]}`,
+      sampled.middle[0] > sampled.middle[2] + 25,
+      '面板中部沿用贴图自身的材质色（棕色）',
+      `rgb(${sampled.middle.join(',')})`,
     )
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
