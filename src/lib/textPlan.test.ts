@@ -64,7 +64,7 @@ describe('planText：亮字优先，绝不给 ID 压黑', () => {
     expect(style.outline).toBeNull()
     expect(style.shadow).toBeTruthy()
     expect(style.contrast).toBeGreaterThanOrEqual(style.threshold)
-    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.58)
+    expect(style.scrim!.alpha).toBeLessThanOrEqual(0.44)
     expect(relativeLuminance(style.fill)).toBeGreaterThan(relativeLuminance(palette.dark))
     expect(style.fill).not.toBe('#ffffff')
     expect(style.shadow).not.toBe('#000000')

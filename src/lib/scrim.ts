@@ -92,6 +92,11 @@ export interface ScrimInput {
   minContrast: number
   /** 允许的最重强度：先用轻的试，轻的救不了就交给上层换别的办法（默认 0.86） */
   maxAlpha?: number
+  /**
+   * 垫层方向。默认顺着底纹主调（暗底更暗、亮底更亮）；
+   * 但"给亮字垫底"必须用**暗**垫层 —— 亮垫层只会让亮字更读不清。
+   */
+  direction?: ToneDirection
 }
 
 /** sRGB 空间按 alpha 叠加（与 canvas 的 globalAlpha 行为一致，不做线性化） */
@@ -105,7 +110,7 @@ function over(background: string, color: string, alpha: number): number {
  */
 export function chooseScrim(input: ScrimInput): ScrimPlan {
   const { tint, background, candidates, minContrast, maxAlpha = 0.86 } = input
-  const direction: ToneDirection = background.lightBackground ? 'light' : 'dark'
+  const direction: ToneDirection = input.direction ?? (background.lightBackground ? 'light' : 'dark')
   const color = scrimTone(tint, direction)
   let plan: ScrimPlan | null = null
   for (const alpha of SCRIM_ALPHAS.filter((step) => step <= maxAlpha)) {

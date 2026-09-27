@@ -20,8 +20,11 @@ export { MIN_TEXT_CONTRAST }
 export const LARGE_TEXT_PX = 24
 export const LARGE_TEXT_CONTRAST = 3
 
-/** 先用多轻的柔化底试：再重就宁可换成同族暗色文字，也别把底纹糊住 */
-export const LIGHT_SCRIM_MAX = 0.58
+/** 先用多轻的柔化底试：再重就宁可换成同族暗色文字（不动底纹），也别把底纹糊住 */
+export const LIGHT_SCRIM_MAX = 0.44
+
+/** 底纹亮端到这个亮度就当作"浅色材质"：此时同族暗字零改动且对比度更高，优先它 */
+export const LIGHT_SURFACE_LUMINANCE = 0.6
 
 /** 达标走的哪条路，界面据此解释 */
 export type TextRoute = 'palette' | 'halo' | 'scrim' | 'dark'
@@ -118,42 +121,58 @@ export function planText(input: TextPlanInput): TextStyle {
     }
   }
 
-  // 3) 亮字 + 同族投影，再用**最轻**的一档同色系柔化底把阈值补上（仍然保持亮字）
-  const lightScrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold, maxAlpha: LIGHT_SCRIM_MAX })
-  if (lightScrim.meetsStandard) {
-    return {
-      fill: lightScrim.text,
-      outline: null,
-      shadow: shadowFor(lightScrim.text),
-      contrast: lightScrim.contrast,
-      threshold,
-      largeText,
-      outlineContrast: null,
-      distance: lightScrim.textDistance,
-      scrim: lightScrim,
-      route: 'scrim',
-    }
-  }
+  // 3) 两条"轻干预"的路都算出来，再按底纹亮端的亮度决定谁优先：
+  //    · 亮字 + 同族投影 + 最轻的一档同色系柔化底（仍然保持亮字）
+  //    · 不动底纹的同族暗字 + 亮投影（底纹本身够亮时，暗字天然够对比）
+  const lightScrim = chooseScrim({
+    tint,
+    background,
+    candidates: bright,
+    minContrast: threshold,
+    maxAlpha: LIGHT_SCRIM_MAX,
+    direction: 'dark',
+  })
+  const scrimPlan: TextStyle | null = lightScrim.meetsStandard
+    ? {
+        fill: lightScrim.text,
+        outline: null,
+        shadow: shadowFor(lightScrim.text),
+        contrast: lightScrim.contrast,
+        threshold,
+        largeText,
+        outlineContrast: null,
+        distance: lightScrim.textDistance,
+        scrim: lightScrim,
+        route: 'scrim',
+      }
+    : null
 
-  // 4) 底纹太浅（白纸一样）：这时候同族暗色文字 + 亮投影才是正解，而且底纹一点不用动
   const darkText = chooseTextColor(dark, range, threshold)
-  if (darkText.meetsStandard) {
-    return {
-      fill: darkText.color,
-      outline: null,
-      shadow: shadowFor(darkText.color),
-      contrast: darkText.contrast,
-      threshold,
-      largeText,
-      outlineContrast: null,
-      distance: darkText.distance,
-      scrim: null,
-      route: 'dark',
-    }
-  }
+  const darkPlan: TextStyle | null = darkText.meetsStandard
+    ? {
+        fill: darkText.color,
+        outline: null,
+        shadow: shadowFor(darkText.color),
+        contrast: darkText.contrast,
+        threshold,
+        largeText,
+        outlineContrast: null,
+        distance: darkText.distance,
+        scrim: null,
+        route: 'dark',
+      }
+    : null
+
+  // 底纹亮端 ≥ 0.6 说明它本来就是浅色材质：这时暗字零改动、对比度还更高，优先它；
+  // 否则优先「亮字 + 轻垫底」（用户偏好的亮字方案），只有它不行才退回暗字。
+  const preferDarkText = range.high >= LIGHT_SURFACE_LUMINANCE
+  const preferred = (preferDarkText ? [darkPlan, scrimPlan] : [scrimPlan, darkPlan]).find(
+    (plan): plan is TextStyle => plan !== null,
+  )
+  if (preferred) return preferred
 
   // 5) 两样都不行：宁可垫重一点，也不把 ID 压成读不清的颜色
-  const heavyScrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold })
+  const heavyScrim = chooseScrim({ tint, background, candidates: bright, minContrast: threshold, direction: 'dark' })
   if (heavyScrim.meetsStandard) {
     return {
       fill: heavyScrim.text,
