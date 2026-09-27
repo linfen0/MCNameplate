@@ -42,8 +42,8 @@ describe('resolveTheme', () => {
     }
     const theme = resolveTheme(config)
     expect(theme.id).toBe(CUSTOM_THEME_ID)
-    // 底纹是“用提取配色生成的颗粒面”，不是平铺贴图
-    expect(theme.texture.kind).toBe('noise')
+    // 默认九宫格拉伸：直接沿用上传的贴图（边框不变形）
+    expect(theme.texture.kind).toBe('image')
     expect(theme.palette).toBeTruthy()
     // 深色底 → 白字
     expect(relativeLuminance(theme.text.fill)).toBeGreaterThan(0.5)

@@ -133,14 +133,20 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
         <>
           <Field
             label="底纹怎么用这张贴图"
-            hint="「整张拉伸」不重复、直接沿用你的纹理；「平铺」按方块尺寸铺成方块墙；「只取配色」用主色派生一块平静的程序化表面。"
+            hint="「九宫格」是 MC 基岩版 GUI 贴图的做法：四角原样、边框只沿一个方向拉伸、只有中间被拉开 —— 边框细节不会变形。带边框的方块贴图首选这个。"
           >
             <ChipRow>
+              <PixelChip
+                active={config.textureFillMode === 'nine-slice'}
+                onClick={() => patch({ textureFillMode: 'nine-slice' })}
+              >
+                九宫格拉伸（推荐）
+              </PixelChip>
               <PixelChip
                 active={config.textureFillMode === 'stretch'}
                 onClick={() => patch({ textureFillMode: 'stretch' })}
               >
-                整张拉伸（默认）
+                整张拉伸
               </PixelChip>
               <PixelChip
                 active={config.textureFillMode === 'tile'}
@@ -156,6 +162,19 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
               </PixelChip>
             </ChipRow>
           </Field>
+
+          {config.textureFillMode === 'nine-slice' ? (
+            <PixelSlider
+              label="九宫格边框"
+              value={config.textureSlice}
+              min={0}
+              max={8}
+              step={1}
+              valueText={`${config.textureSlice} 像素`}
+              onChange={(value) => patch({ textureSlice: value })}
+              hint="贴图四边有多少像素保持不变形；带边框的贴图调成边框的实际厚度，0 = 退化成整张拉伸"
+            />
+          ) : null}
 
           {config.textureFillMode === 'tile' ? (
             <PixelSlider

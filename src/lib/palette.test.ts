@@ -68,47 +68,35 @@ describe('extractPalette', () => {
 })
 
 describe('buildThemeFromTexture', () => {
-  it('底纹由提取出的配色程序化生成，而不是平铺原贴图', () => {
+  it('默认九宫格：四角原样保留，只有中间被拉开', () => {
     const image = blockTexture()
     const theme = buildThemeFromTexture(image)
-    expect(theme.texture.kind).toBe('noise')
-    const palette = extractPalette(image)
-    if (theme.texture.kind === 'noise') {
-      // 主色原样使用
-      expect(theme.texture.palette.base).toBe(palette.base)
+    expect(theme.texture.kind).toBe('image')
+    if (theme.texture.kind === 'image') {
+      expect(theme.texture.image).toBe(image)
+      expect(theme.texture.mode).toBe('nine-slice')
+      // 16×16 的贴图默认估 2 像素边框
+      expect(theme.texture.slice).toBe(2)
     }
-    // 贴图本身不能被塞进主题里当底图
-    expect(JSON.stringify(theme.texture)).not.toContain('image')
   })
 
-  it('底纹只由主色派生：深底 + 金色点缀的机器贴图也不会撒满金点', () => {
-    // 模拟“深色底 + 少量亮金细节”的机器贴图（radial chassis 那类）
-    const image = createImage(16, 16)
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 16; x++) {
-        const n = (x * 5 + y * 3) % 20
-        const color: [number, number, number, number] =
-          n === 0 ? [250, 200, 60, 255] : n === 1 ? [255, 240, 200, 255] : [26, 24, 22, 255]
-        setPixel(image, x, y, color)
-      }
+  it('平铺模式带上方块尺寸', () => {
+    const theme = buildThemeFromTexture(blockTexture(), { fillMode: 'tile', texelScale: 6 })
+    expect(theme.texture.kind).toBe('image')
+    if (theme.texture.kind === 'image') {
+      expect(theme.texture.mode).toBe('tile')
+      expect(theme.texture.texelScale).toBe(6)
     }
-    const extracted = extractPalette(image)
-    const theme = buildThemeFromTexture(image)
-    expect(theme.texture.kind).toBe('noise')
-    if (theme.texture.kind !== 'noise') return
-    const surface = theme.texture.palette
+  })
 
-    // 底纹三层色必须都贴近主色，且不含被提取出的金色亮部
-    expect(surface.base).toBe(extracted.base)
-    const baseLuminance = relativeLuminance(surface.base)
-    expect(relativeLuminance(surface.light) - baseLuminance).toBeLessThan(0.12)
-    expect(baseLuminance - relativeLuminance(surface.dark)).toBeLessThan(0.16)
-    for (const tone of [surface.base, surface.light, surface.dark]) {
-      // 金色亮部的红绿通道差异很大，底纹里不该出现这种色
-      const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(tone.slice(i, i + 2), 16))
-      expect(r - b).toBeLessThan(40)
-      expect(g).toBeGreaterThanOrEqual(b - 10)
+  it('只取配色模式：底纹由主色派生，不塞原贴图', () => {
+    const image = blockTexture()
+    const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
+    expect(theme.texture.kind).toBe('noise')
+    if (theme.texture.kind === 'noise') {
+      expect(theme.texture.palette.base).toBe(extractPalette(image).base)
     }
+    expect(JSON.stringify(theme.texture)).not.toContain('image')
   })
 
   it('提取出的亮部/暗部色卡用在外框等组件上，并保持足够对比', () => {
