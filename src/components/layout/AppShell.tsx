@@ -1,6 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { cx } from '../../lib/cx'
 
+/** 构建时间戳：方便确认浏览器里跑的是不是最新一版（旧 bundle 会显示旧时间） */
+const BUILD_TIME = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__.replace('T', ' ').slice(0, 19) : 'dev'
+
 const NAV_ITEMS = [
   { to: '/', label: '生成器', end: true },
   { to: '/guide', label: '说明', end: false },
@@ -44,7 +47,8 @@ export function AppShell() {
           全部处理都在你的浏览器本地完成，皮肤图片不会上传到任何服务器。
         </span>
         <span>
-          字体：Silkscreen / Press Start 2P（SIL OFL 1.1） · 皮肤与 Minecraft 版权归 Mojang 所有，本项目与 Mojang 无关。
+          构建于 {BUILD_TIME} · 字体：Silkscreen / Press Start 2P（SIL OFL 1.1） · 皮肤与 Minecraft
+          版权归 Mojang 所有，本项目与 Mojang 无关。
         </span>
       </footer>
     </div>

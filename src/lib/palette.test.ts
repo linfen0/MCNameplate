@@ -72,16 +72,39 @@ describe('buildThemeFromTexture', () => {
     const image = blockTexture()
     const theme = buildThemeFromTexture(image)
     expect(theme.texture.kind).toBe('noise')
+    const palette = extractPalette(image)
     if (theme.texture.kind === 'noise') {
-      const palette = extractPalette(image)
-      expect(theme.texture.palette).toEqual({
-        base: palette.base,
-        light: palette.light,
-        dark: palette.dark,
-      })
+      // 主色原样使用
+      expect(theme.texture.palette.base).toBe(palette.base)
     }
     // 贴图本身不能被塞进主题里当底图
     expect(JSON.stringify(theme.texture)).not.toContain('image')
+  })
+
+  it('底纹的明暗被收窄：机器类等高对比贴图也不会变成“花斑棋盘”', () => {
+    // 一半纯黑一半亮灰 —— 这种贴图如果直接用提取出的极端色当噪声三色，会糊成棋盘
+    const image = createImage(16, 16)
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        setPixel(image, x, y, x < 8 ? [235, 235, 235, 255] : [18, 18, 22, 255])
+      }
+    }
+    const theme = buildThemeFromTexture(image)
+    expect(theme.texture.kind).toBe('noise')
+    if (theme.texture.kind !== 'noise') return
+    const baseLuminance = relativeLuminance(theme.texture.palette.base)
+    const lightDelta = relativeLuminance(theme.texture.palette.light) - baseLuminance
+    const darkDelta = baseLuminance - relativeLuminance(theme.texture.palette.dark)
+    expect(lightDelta).toBeLessThanOrEqual(0.21)
+    expect(darkDelta).toBeLessThanOrEqual(0.25)
+    // 收窄后仍要有起伏，不能压成一个纯色
+    expect(lightDelta).toBeGreaterThan(0.01)
+    expect(darkDelta).toBeGreaterThan(0.01)
+  })
+
+  it('外框与强调色仍可保留贴图的强对比（只有底纹被收窄）', () => {
+    const theme = buildThemeFromTexture(blockTexture())
+    expect(relativeLuminance(theme.frame.light)).toBeGreaterThan(relativeLuminance(theme.frame.dark) * 1.5)
   })
 
   it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {
