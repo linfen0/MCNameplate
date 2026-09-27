@@ -2,6 +2,7 @@ import { ChipRow, Field, PixelChip, PixelToggle } from '../../../components/pixe
 import { cx } from '../../../lib/cx'
 import { PIXEL_FONTS } from '../../../lib/pixelFont'
 import { THEMES } from '../../../lib/themes'
+import type { TextStyle } from '../../../lib/textPlan'
 import type { TextureLibraryState } from '../../../hooks/useTextureLibrary'
 import type { NameplateConfig } from '../config'
 import { CUSTOM_THEME_ID } from '../theme'
@@ -11,10 +12,12 @@ export interface AppearanceControlsProps {
   config: NameplateConfig
   patch: (changes: Partial<NameplateConfig>) => void
   library: TextureLibraryState
+  /** 画布上实测出来的文字配色 */
+  textStyle?: TextStyle | null
 }
 
 /** 底色主题、ID 字体与文字样式开关 */
-export function AppearanceControls({ config, patch, library }: AppearanceControlsProps) {
+export function AppearanceControls({ config, patch, library, textStyle }: AppearanceControlsProps) {
   return (
     <div className="space-y-5">
       <Field
@@ -71,7 +74,7 @@ export function AppearanceControls({ config, patch, library }: AppearanceControl
         </ChipRow>
       </Field>
 
-      <TextureThemePanel config={config} patch={patch} library={library} />
+      <TextureThemePanel config={config} patch={patch} library={library} textStyle={textStyle} />
 
       <Field label="ID 字体" hint="两种字体都是 SIL OFL 开源许可，已随项目本地托管。">
         <ChipRow>

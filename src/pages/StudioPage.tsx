@@ -84,7 +84,12 @@ export function StudioPage() {
         </Panel>
 
         <Panel title="4 · 外观">
-          <AppearanceControls config={config} patch={patch} library={library} />
+          <AppearanceControls
+            config={config}
+            patch={patch}
+            library={library}
+            textStyle={result?.textStyle ?? null}
+          />
         </Panel>
       </div>
     </div>

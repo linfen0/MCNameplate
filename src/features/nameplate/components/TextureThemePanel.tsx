@@ -5,6 +5,7 @@ import { rgbaToCanvas } from '../../../lib/imageIo'
 import { paletteToCssGradient } from '../../../lib/palette'
 import type { RgbaImage } from '../../../lib/types'
 import type { TextureLibraryState } from '../../../hooks/useTextureLibrary'
+import type { TextStyle } from '../../../lib/textPlan'
 import type { NameplateConfig } from '../config'
 import { resolveTheme } from '../theme'
 
@@ -12,13 +13,15 @@ export interface TextureThemePanelProps {
   config: NameplateConfig
   patch: (changes: Partial<NameplateConfig>) => void
   library: TextureLibraryState
+  /** 画布上实测出来的文字配色：界面显示的就是真正画上去的那一份 */
+  textStyle?: TextStyle | null
 }
 
 /**
  * 自定义纹理主题：拖入任意方块贴图（MC 原版或 Mod 都行），
  * 程序化提取配色并直接套用到整套主题。
  */
-export function TextureThemePanel({ config, patch, library }: TextureThemePanelProps) {
+export function TextureThemePanel({ config, patch, library, textStyle }: TextureThemePanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [dragging, setDragging] = useState(false)
   const active = config.customTexture
@@ -190,7 +193,10 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
             />
           ) : null}
 
-          <Field label="程序提取的配色" hint={`平均亮度 ${(active.palette.luminance * 100).toFixed(0)}% · 文字色和描边色是按对比度自动选的`}>
+          <Field
+            label="程序提取的配色"
+            hint={`平均亮度 ${(active.palette.luminance * 100).toFixed(0)}% · 文字色 / 投影色按底纹实测对比度自动选（不是写死的黑白）`}
+          >
             <div className="space-y-2">
               <div
                 className="h-6 border-2 border-black"
@@ -203,8 +209,8 @@ export function TextureThemePanel({ config, patch, library }: TextureThemePanelP
                   ['暗部 dark', active.palette.dark],
                   ['强调 accent', active.palette.accent],
                   ['平均 average', active.palette.average],
-                  ['文字 fill', resolveTheme(config).text.fill],
-                  ['描边 shadow', resolveTheme(config).text.shadow ?? '—'],
+                  ['文字 fill', textStyle?.fill ?? resolveTheme(config).text.fill],
+                  ['投影 shadow', textStyle?.shadow ?? resolveTheme(config).text.shadow ?? '—'],
                 ].map(([label, color]) => (
                   <div key={label} className="flex items-center gap-2">
                     <span className="block h-3 w-3 border border-black" style={{ backgroundColor: color }} />
