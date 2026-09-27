@@ -758,52 +758,85 @@ async function main() {
       '最外圈就是贴图自带边框（金色），没有被名牌外框盖掉',
       `左边缘 rgb(${edge.left.join(',')}) · 上边缘 rgb(${edge.top.join(',')})`,
     )
-    // 独立复算文字对比度：从画布上取文字色与紧邻的背景色，按 WCAG 公式算
+    // 独立复算文字对比度：在 ID 区做颜色直方图，找出成片的文字色与它紧邻的背景色，按 WCAG 公式算。
+    // 不用“接近纯白 / 纯黑”的判据 —— 现在的文字色是同族中性色（如 #F0EDE6），本来就到不了 255。
     const contrast = await page.evaluate(() => {
       const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
-      const ctx = canvas.getContext('2d')
-      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const at = (x, y) => {
-        const i = (y * canvas.width + x) * 4
-        return [data[i], data[i + 1], data[i + 2]]
-      }
-      const lum = (rgb) => {
-        const lin = rgb.map((v) => {
+      const x0 = Math.floor(canvas.width * 0.6)
+      const w = canvas.width - x0
+      const h = canvas.height
+      const { data } = canvas.getContext('2d').getImageData(x0, 0, w, h)
+      const lumOf = (r, g, b) => {
+        const lin = [r, g, b].map((v) => {
           const c = v / 255
           return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
         })
         return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
       }
-      // 文字像素：右半区接近纯白/纯黑的成片像素；背景：紧邻文字上方的像素
-      let fill = null
-      let minY = canvas.height
-      for (let y = 0; y < canvas.height; y++) {
-        for (let x = Math.floor(canvas.width * 0.6); x < canvas.width; x++) {
-          const rgb = at(x, y)
-          const isWhite = rgb.every((v) => v > 245)
-          const isBlack = rgb.every((v) => v < 25)
-          if (isWhite || isBlack) {
-            fill = isWhite ? [255, 255, 255] : [0, 0, 0]
-            if (y < minY) minY = y
-          }
+      const hist = new Map()
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4
+          const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
+          hist.set(key, (hist.get(key) ?? 0) + 1)
         }
       }
-      if (!fill || minY >= canvas.height) return null
-      const background = at(Math.floor(canvas.width * 0.85), Math.max(0, minY - 3))
-      const lf = lum(fill)
-      const lb = lum(background)
+      const entries = [...hist.entries()]
+        .map(([key, count]) => ({ key, count, rgb: [(key >> 16) & 255, (key >> 8) & 255, key & 255] }))
+        .map((item) => ({ ...item, lum: lumOf(...item.rgb) }))
+        .sort((a, b) => b.count - a.count)
+      const background = entries[0]
+      // 文字色：成片出现、且与主色亮度拉开距离的那个颜色
+      const text = entries.find((item) => item.count >= 100 && Math.abs(item.lum - background.lum) > 0.25)
+      if (!text) return null
+
+      // 文字“紧邻”的背景：统计文字像素四周 2 / 4 像素处的颜色众数
+      const near = new Map()
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4
+          const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
+          if (key === text.key) continue
+          let touches = false
+          for (const d of [2, 4]) {
+            for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
+              const nx = x + dx
+              const ny = y + dy
+              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+              const j = (ny * w + nx) * 4
+              if (((data[j] << 16) | (data[j + 1] << 8) | data[j + 2]) === text.key) touches = true
+            }
+          }
+          if (touches) near.set(key, (near.get(key) ?? 0) + 1)
+        }
+      }
+      const neighbor = [...near.entries()]
+        .map(([key, count]) => ({ count, rgb: [(key >> 16) & 255, (key >> 8) & 255, key & 255] }))
+        .sort((a, b) => b.count - a.count)[0]
+      if (!neighbor) return null
+      const lf = text.lum
+      const lb = lumOf(...neighbor.rgb)
       return {
         ratio: (Math.max(lf, lb) + 0.05) / (Math.min(lf, lb) + 0.05),
-        fill,
-        background,
+        fill: text.rgb,
+        background: neighbor.rgb,
+        fillCount: text.count,
       }
     })
     check(
       contrast !== null && contrast.ratio >= 4.5,
       '文字与背景的对比度达到 WCAG AA（4.5:1）',
       contrast
-        ? `实测 ${contrast.ratio.toFixed(2)}:1（文字 rgb(${contrast.fill.join(',')}) / 背景 rgb(${contrast.background.join(',')})）`
-        : '未找到文字像素',
+        ? `实测 ${contrast.ratio.toFixed(2)}:1（文字 rgb(${contrast.fill.join(',')}) / 紧邻背景 rgb(${contrast.background.join(',')})）`
+        : '未找到成片的文字像素',
+    )
+    // 纯白 / 纯黑已经不再作为兜底：画面上的文字色应当是“同族中性色”
+    check(
+      contrast !== null &&
+        !(contrast.fill[0] === 255 && contrast.fill[1] === 255 && contrast.fill[2] === 255) &&
+        !(contrast.fill[0] === 0 && contrast.fill[1] === 0 && contrast.fill[2] === 0),
+      '画布上的文字色不是纯白 / 纯黑（改用底色同族的中性色）',
+      contrast ? `实测文字 rgb(${contrast.fill.join(',')})` : '未找到文字像素',
     )
 
     const contrastLine = await page.evaluate(() => {
@@ -815,6 +848,27 @@ async function main() {
       contrastLine.includes('WCAG AA ✓'),
       '文字对比度达标，且没有动用压暗底（优先提亮文字）',
       contrastLine,
+    )
+    // 界面报告的取色要和画布上真实画出来的那个颜色一致（避免“说的和画的不一样”）
+    const reportedFill = /文字色\s*(#[0-9a-f]{6})/.exec(contrastLine)?.[1] ?? null
+    const detectedFill =
+      contrast === null
+        ? null
+        : `#${contrast.fill.map((v) => v.toString(16).padStart(2, '0')).join('')}`
+    check(
+      reportedFill !== null && reportedFill === detectedFill,
+      '界面报告的文字色 = 画布上实测的文字色',
+      `报告 ${reportedFill} · 实测 ${detectedFill}`,
+    )
+    const harmonyLine = await page.evaluate(() => {
+      const text = document.body.innerText
+      const index = text.indexOf('取色卡')
+      return index >= 0 ? text.slice(index - 40, index + 60).replace(/\n/g, ' ') : ''
+    })
+    check(
+      harmonyLine.includes('取色卡') || harmonyLine.includes('色卡派生档'),
+      '界面说明取色来自色卡 / 色卡派生档，而不是写死的黑白',
+      harmonyLine,
     )
 
     await exportCanvas(page, 'nameplate-custom-texture.png')
