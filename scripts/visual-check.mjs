@@ -142,6 +142,25 @@ function makeLightGoldTexture() {
   return PNG.sync.write(png)
 }
 
+/**
+ * 造一块棕金色材质（复刻用户截图里那张）：主色 #926e3f / 亮部 #9a7442 / 暗部 #452d14。
+ * 这张图最容易被算法一路推到近白，用来盯住"文字又变纯白"这个回归。
+ */
+function makeBrownGoldTexture() {
+  const png = new PNG({ width: 16, height: 16 })
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const i = (y * 16 + x) * 4
+      const base = x < 10 ? [146, 110, 63] : x < 13 ? [154, 116, 66] : [69, 45, 20]
+      png.data[i] = base[0]
+      png.data[i + 1] = base[1]
+      png.data[i + 2] = base[2]
+      png.data[i + 3] = 255
+    }
+  }
+  return PNG.sync.write(png)
+}
+
 /** 把一张贴图喂给上传框（DataTransfer 派发 change，绕过隐藏 input 的限制） */
 async function uploadTexture(page, buffer, name) {
   await page.evaluate(
@@ -163,6 +182,16 @@ async function uploadTexture(page, buffer, name) {
 /* ------------------------------------------------------------------ */
 /* 2. 浏览器内像素分析                                                  */
 /* ------------------------------------------------------------------ */
+
+/** WCAG 相对亮度（Node 侧复算，用于断言文字不是近白） */
+function relativeLuminanceOf(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16))
+  const lin = (v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
 
 /** 读应用自己报出来的文字配色（画布 dataset） */
 function readTextStyle() {
@@ -976,6 +1005,33 @@ async function main() {
       '3D 导出把投影做成独立材质层',
       `材质 ${[...new Set((goldObj.match(/usemtl .+/g) ?? []))].join(' / ')}`,
     )
+    // ---- 棕金色材质：文字不能又被推成近白 ----
+    const brownGold = makeBrownGoldTexture()
+    await writeFile(path.join(OUT_DIR, 'test-block-brown-gold.png'), brownGold)
+    await uploadTexture(page, brownGold, 'brown_gold.png')
+    const brownStyle = await page.evaluate(readTextStyle)
+    check(
+      brownStyle.contrast >= brownStyle.threshold,
+      '棕金色材质上仍然达到 WCAG AA',
+      `${brownStyle.contrast.toFixed(2)}:1 ≥ ${brownStyle.threshold}:1`,
+    )
+    check(
+      brownStyle.fill !== '#ffffff' && relativeLuminanceOf(brownStyle.fill) <= 0.75,
+      '文字色不再被推成近白（留在色卡附近的暖色里）',
+      `文字色 ${brownStyle.fill}`,
+    )
+    const brownPanel = await page.evaluate(() => {
+      const text = document.body.innerText
+      const index = text.indexOf('文字 fill')
+      return index >= 0 ? text.slice(index, index + 40).replace(/\n/g, ' ') : ''
+    })
+    check(
+      brownPanel.includes(brownStyle.fill),
+      '配色面板显示的就是画布实测的文字色（不会说的和画的不一样）',
+      brownPanel,
+    )
+    await exportCanvas(page, 'nameplate-brown-gold.png')
+
     // 把带描边的 SVG 反过来渲染，留档人工复核
     const goldSvgPage = await browser.newPage({ viewport: { width: 1300, height: 420 } })
     await goldSvgPage.setContent(
