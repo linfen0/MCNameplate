@@ -74,3 +74,96 @@ export function mixHex(a: string, b: string, t: number): string {
     255,
   ])
 }
+
+export interface Hsl {
+  /** 色相 0-360 */
+  h: number
+  /** 饱和度 0-1 */
+  s: number
+  /** 明度 0-1 */
+  l: number
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
+/** RGB → HSL（h ∈ [0,360)，s/l ∈ [0,1]） */
+export function hexToHsl(hex: string): Hsl {
+  const [r255, g255, b255] = hexToRgba(hex)
+  const r = r255 / 255
+  const g = g255 / 255
+  const b = b255 / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const delta = max - min
+  if (delta === 0) return { h: 0, s: 0, l }
+  const s = delta / (1 - Math.abs(2 * l - 1))
+  let h: number
+  if (max === r) h = 60 * (((g - b) / delta) % 6)
+  else if (max === g) h = 60 * ((b - r) / delta + 2)
+  else h = 60 * ((r - g) / delta + 4)
+  return { h: (h + 360) % 360, s, l }
+}
+
+/** HSL → #RRGGBB */
+export function hslToHex({ h, s, l }: Hsl): string {
+  const hue = ((h % 360) + 360) % 360
+  const sat = clamp01(s)
+  const light = clamp01(l)
+  const c = (1 - Math.abs(2 * light - 1)) * sat
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
+  const m = light - c / 2
+  const sector = Math.floor(hue / 60) % 6
+  const rgb: Array<[number, number, number]> = [
+    [c, x, 0],
+    [x, c, 0],
+    [0, c, x],
+    [0, x, c],
+    [x, 0, c],
+    [c, 0, x],
+  ]
+  const [r, g, b] = rgb[sector]
+  return rgbaToHex([(r + m) * 255, (g + m) * 255, (b + m) * 255, 255])
+}
+
+/** 沿色环最短路径把 hue 往 target 旋转 amount（0-1） */
+export function rotateHueToward(hue: number, target: number, amount: number): number {
+  const from = ((hue % 360) + 360) % 360
+  const delta = ((((target - from) % 360) + 540) % 360) - 180
+  return (from + delta * clamp01(amount) + 360) % 360
+}
+
+export type ToneDirection = 'light' | 'dark'
+
+/** 亮部偏暖、暗部偏冷：像素画的 hue shifting 惯例 */
+const WARM_HUE = 45
+const COOL_HUE = 220
+
+export interface ToneOptions {
+  /** 目标明度（HSL 的 L，0-1） */
+  lightness: number
+  /** 彩度上限：中性色不是无彩色，而是低彩度、带底色倾向 */
+  maxChroma?: number
+  /** 色相偏移强度 0-1：亮部往暖色偏、暗部往冷色偏 */
+  hueShift?: number
+}
+
+/**
+ * 生成与源色同族的中性色（tone）：保留色相、压低彩度、把明度推到指定档位。
+ *
+ * 这是 Material Design 3 tonal palette 的做法 —— 文字用的 on-surface 取 neutral 色阶的
+ * tone 90 / tone 10（#E6E0E9 / #1D1B20 这类），而不是 #FFFFFF / #000000；
+ * Ant Design 的 rgba(255,255,255,.85) / rgba(0,0,0,.88) 是同一思路的另一种写法。
+ * 亮部偏暖、暗部偏冷则是像素画里 hue shifting 的惯例，避免画面变成"灰糊糊"。
+ */
+export function toneOf(source: string, direction: ToneDirection, options: ToneOptions): string {
+  const { h, s } = hexToHsl(source)
+  const hue = rotateHueToward(h, direction === 'light' ? WARM_HUE : COOL_HUE, options.hueShift ?? 0)
+  return hslToHex({
+    h: hue,
+    s: Math.min(s, options.maxChroma ?? 0.12),
+    l: options.lightness,
+  })
+}
