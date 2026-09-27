@@ -7,7 +7,7 @@
  * 纯函数，不依赖 DOM，可直接单测。
  */
 
-import { contrastRatio, hexToRgba, relativeLuminance, rgbaToHex, shadeHex } from './color'
+import { contrastRatio, hexToRgba, mixHex, relativeLuminance, rgbaToHex, shadeHex } from './color'
 import type { RgbaImage } from './types'
 import type { Palette, PanelTexture } from './textures'
 import type { Theme, ThemeColorSet } from './themes'
@@ -245,6 +245,71 @@ function uniq(colors: string[]): string[] {
  * 描边色也只在色卡里挑：取与文字色对比度最高的一张（至少要能看出投影）。
  * 不再用 shadeHex 现场推导颜色，保证名牌上出现的颜色全部来自用户贴图。
  */
+/** 文字色候选：记录它离“原始色卡”有多远，越远越不优先（distance 0 = 就是色卡本身） */
+export interface TextCandidate {
+  color: string
+  /** 0 = 色卡原色，越大表示被改动得越多（提亮/压暗的档位） */
+  distance: number
+}
+
+/**
+ * 生成文字候选色。
+ * 关键：**优先在文字一侧解决对比度**（把色卡里的颜色往白/黑推），
+ * 而不是去压暗用户贴图当底 —— 名牌的职责是让 ID 一眼可读，
+ * 改动背景等于在别人的材质上贴补丁。
+ */
+export function buildTextCandidates(swatches: string[], lightBackground: boolean): TextCandidate[] {
+  const toward = lightBackground ? '#000000' : '#ffffff'
+  const candidates: TextCandidate[] = []
+  for (const color of swatches) {
+    candidates.push({ color, distance: 0 })
+    candidates.push({ color: mixHex(color, toward, 0.4), distance: 1 })
+    candidates.push({ color: mixHex(color, toward, 0.75), distance: 2 })
+  }
+  candidates.push({ color: '#ffffff', distance: 3 })
+  candidates.push({ color: '#151515', distance: 3 })
+  const seen = new Set<string>()
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.color)) return false
+    seen.add(candidate.color)
+    return true
+  })
+}
+
+function contrastWithLuminance(color: string, luminance: number): number {
+  const l = relativeLuminance(color)
+  return (Math.max(l, luminance) + 0.05) / (Math.min(l, luminance) + 0.05)
+}
+
+/**
+ * 从候选里挑文字色：
+ *   1. 先要“最坏情况下”对比度达标（亮部和暗部都要过关）；
+ *   2. 达标者里挑改动最小的一张色卡色（保留用户贴图的色相）；
+ *   3. 都不达标就返回对比度最高的那个，交给上层决定要不要动底。
+ */
+export function chooseTextColor(
+  candidates: TextCandidate[],
+  range: { low: number; high: number },
+  minContrast: number,
+): { color: string; contrast: number; distance: number; meetsStandard: boolean } {
+  const scored = candidates.map((candidate) => ({
+    ...candidate,
+    contrast: Math.min(
+      contrastWithLuminance(candidate.color, range.high),
+      contrastWithLuminance(candidate.color, range.low),
+    ),
+  }))
+  const passing = scored.filter((item) => item.contrast >= minContrast)
+  const pool = passing.length > 0 ? passing : scored
+  const best = [...pool].sort((a, b) => a.distance - b.distance || b.contrast - a.contrast)[0]
+  return {
+    color: best.color,
+    contrast: best.contrast,
+    distance: best.distance,
+    meetsStandard: best.contrast >= minContrast,
+  }
+}
+
 export function pickShadowColor(fill: string, swatches: string[]): string {
   const usable = swatches.filter((color) => color !== fill)
   if (usable.length === 0) return fill

@@ -11,6 +11,7 @@ import {
 import type { Theme } from '../../../lib/themes'
 import type { NameplateConfig } from '../config'
 import { relativeLuminance } from '../../../lib/color'
+import { buildTextCandidates, chooseTextColor } from '../../../lib/palette'
 import type { LayoutPlan } from '../layout'
 import { idDisplayText } from '../resolve'
 
@@ -54,23 +55,10 @@ function sampleBackground(
   return { low, high, mean, light: mean > 0.35 }
 }
 
-/** 在候选文字色里挑“最坏情况下对比度最高”的那个 */
-function pickReadableFill(
-  candidates: string[],
-  stats: BackgroundStats,
-): { fill: string; contrast: number } {
-  let best = { fill: candidates[0] ?? '#ffffff', contrast: 0 }
-  for (const color of new Set(candidates)) {
-    // 与最不利的局部背景比：亮区用白字会失败、暗区用黑字会失败，取两者较小值
-    const againstLight = contrastOf(color, stats.high)
-    const againstDark = contrastOf(color, stats.low)
-    const worst = Math.min(againstLight, againstDark)
-    if (worst > best.contrast) best = { fill: color, contrast: worst }
-  }
-  return best
-}
-
-/** 在文字区上叠一层棋盘格压暗/提亮底，把对比度拉到 WCAG AA */
+/**
+ * 在文字区上叠一层棋盘格压暗/提亮底。
+ * 这是**最后手段**：能给文字补光就绝不动用户的贴图。
+ */
 function drawContrastPlate(
   ctx: CanvasRenderingContext2D,
   plan: LayoutPlan,
@@ -85,11 +73,8 @@ function drawContrastPlate(
   patternCanvas.height = cell * 2
   const patternCtx = patternCanvas.getContext('2d')
   if (!patternCtx) return
-  const color =
-    direction === 'dark'
-      ? `rgba(0, 0, 0, ${alpha})`
-      : `rgba(255, 255, 255, ${alpha})`
-  patternCtx.fillStyle = color
+  patternCtx.fillStyle =
+    direction === 'dark' ? `rgba(0, 0, 0, ${alpha})` : `rgba(255, 255, 255, ${alpha})`
   patternCtx.fillRect(0, 0, cell, cell)
   patternCtx.fillRect(cell, cell, cell, cell)
   const pattern = ctx.createPattern(patternCanvas, 'repeat')
@@ -102,12 +87,6 @@ function drawContrastPlate(
   ctx.fillRect(0, 0, box.x + box.width - originX, box.y + box.height - originY)
   ctx.restore()
   void theme
-}
-
-/** 用亮度值算对比度（避免反复拼 hex） */
-function contrastOf(color: string, luminance: number): number {
-  const l = relativeLuminance(color)
-  return (Math.max(l, luminance) + 0.05) / (Math.min(l, luminance) + 0.05)
 }
 
 /**
@@ -150,35 +129,37 @@ export function drawIdText(
   //    文字压在贴图纹理上，局部可能比主色亮/暗得多，导致“纸面达标、画面不达标”
   const stats = sampleBackground(ctx, plan.idBox)
 
-  // 2) 候选文字色：主题给的色 + 色卡里的全部色 + 黑白兜底，取最坏情况下对比度最高的
+  // 2) 先在“文字这一侧”解决对比度：色卡原色 → 往白/黑推的档位 → 纯白/纯黑。
+  //    达标者里挑改动最小的，尽量保留用户贴图的色相。
   const swatches = theme.palette
-    ? [theme.palette.base, theme.palette.light, theme.palette.dark, theme.palette.accent]
+    ? [theme.palette.light, theme.palette.accent, theme.palette.dark, theme.palette.base]
     : [theme.text.fill]
-  const candidates = [theme.text.fill, ...swatches, '#ffffff', '#151515']
-  let choice = pickReadableFill(candidates, stats)
+  const candidates = buildTextCandidates(swatches, stats.light)
+  let choice = chooseTextColor(candidates, { low: stats.low, high: stats.high }, MIN_TEXT_CONTRAST)
+  let fill = choice.color
 
-  // 3) 还不达 WCAG AA 就先加强压暗/提亮底（用色卡里的暗色或亮色），再复算
+  // 3) 只有连纯白/纯黑都够不着 4.5:1（例如中灰底）才动底：
+  //    这一步是最后手段，因为它会改动用户贴图的观感。
   let backdropAlpha = 0
-  const direction: 'dark' | 'light' = stats.light ? 'dark' : 'light'
-  if (choice.contrast < MIN_TEXT_CONTRAST) {
+  if (!choice.meetsStandard) {
+    const direction: 'dark' | 'light' = stats.light ? 'dark' : 'light'
     for (const alpha of [0.45, 0.62, 0.78]) {
       const low = afterBackdrop(stats.low, direction, alpha)
       const high = afterBackdrop(stats.high, direction, alpha)
-      const probe = pickReadableFill(candidates, { ...stats, low, high })
-      if (probe.contrast >= MIN_TEXT_CONTRAST) {
+      const probe = chooseTextColor(candidates, { low, high }, MIN_TEXT_CONTRAST)
+      if (probe.meetsStandard) {
         choice = probe
+        fill = probe.color
         backdropAlpha = alpha
         break
       }
     }
+    // 连纯白/纯黑都够不着（例如中灰底）——最后手段才动底
+    const fallbackDirection: 'dark' | 'light' = stats.light ? 'dark' : 'light'
+    if (backdropAlpha === 0) backdropAlpha = 0.62
+    drawContrastPlate(ctx, plan, theme, fallbackDirection, backdropAlpha)
   }
 
-  // 4) 画这层额外的底（棋盘格，保持像素风）
-  if (backdropAlpha > 0) {
-    drawContrastPlate(ctx, plan, theme, direction, backdropAlpha)
-  }
-
-  const fill = choice.fill
   const shadow = config.shadow && theme.text.shadow && theme.text.shadow !== fill ? theme.text.shadow : null
   const block = renderTextBlock({
     text,
