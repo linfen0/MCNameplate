@@ -146,10 +146,22 @@ describe('buildThemeFromTexture', () => {
     }
   })
 
-  it('描边色取自色卡且与文字色有区分', () => {
-    const theme = buildThemeFromTexture(blockTexture(), { fillMode: 'palette' })
+  it('描边色严格取自色卡，不用现场推导的颜色', () => {
+    const image = blockTexture()
+    const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
+    const palette = extractPalette(image)
+    const swatches = [palette.base, palette.light, palette.dark, palette.accent]
     expect(theme.text.shadow).toBeTruthy()
+    expect(swatches).toContain(theme.text.shadow!)
     expect(theme.text.shadow).not.toBe(theme.text.fill)
+  })
+
+  it('文字色也限定在色卡内（除非色卡整体对比不足）', () => {
+    const image = blockTexture()
+    const theme = buildThemeFromTexture(image, { fillMode: 'palette' })
+    const palette = extractPalette(image)
+    const swatches = [palette.base, palette.light, palette.dark, palette.accent, '#ffffff', '#151515']
+    expect(swatches).toContain(theme.text.fill)
   })
 
   it('深色贴图用白字，浅色贴图用深字（按对比度自动选）', () => {

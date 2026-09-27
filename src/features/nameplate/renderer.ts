@@ -28,6 +28,12 @@ export interface RenderResult {
   headScale: number
   /** ID 放大倍率 */
   textScale: number
+  /** 实际使用的文字色（可能为了对比度从色卡里换过） */
+  textFill: string
+  /** 实测达到的 WCAG 对比度 */
+  textContrast: number
+  /** 为达标额外加的压暗/提亮强度，0 表示没加 */
+  textBackdropAlpha: number
   /** ID 为空，画布上是占位文字 */
   placeholderId: boolean
   /** 是否成功绘制了皮肤头像 */
@@ -100,6 +106,9 @@ export function renderNameplate(
     height: layout.height,
     headScale: layout.headScale,
     textScale: idResult.scale,
+    textFill: idResult.fill,
+    textContrast: idResult.contrast,
+    textBackdropAlpha: idResult.backdropAlpha,
     placeholderId: idResult.placeholder,
     hasSkin,
     head3d,

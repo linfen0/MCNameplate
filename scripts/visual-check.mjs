@@ -758,6 +758,54 @@ async function main() {
       '最外圈就是贴图自带边框（金色），没有被名牌外框盖掉',
       `左边缘 rgb(${edge.left.join(',')}) · 上边缘 rgb(${edge.top.join(',')})`,
     )
+    // 独立复算文字对比度：从画布上取文字色与紧邻的背景色，按 WCAG 公式算
+    const contrast = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+      const ctx = canvas.getContext('2d')
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const at = (x, y) => {
+        const i = (y * canvas.width + x) * 4
+        return [data[i], data[i + 1], data[i + 2]]
+      }
+      const lum = (rgb) => {
+        const lin = rgb.map((v) => {
+          const c = v / 255
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+        })
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+      }
+      // 文字像素：右半区接近纯白/纯黑的成片像素；背景：紧邻文字上方的像素
+      let fill = null
+      let minY = canvas.height
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = Math.floor(canvas.width * 0.6); x < canvas.width; x++) {
+          const rgb = at(x, y)
+          const isWhite = rgb.every((v) => v > 245)
+          const isBlack = rgb.every((v) => v < 25)
+          if (isWhite || isBlack) {
+            fill = isWhite ? [255, 255, 255] : [0, 0, 0]
+            if (y < minY) minY = y
+          }
+        }
+      }
+      if (!fill || minY >= canvas.height) return null
+      const background = at(Math.floor(canvas.width * 0.85), Math.max(0, minY - 3))
+      const lf = lum(fill)
+      const lb = lum(background)
+      return {
+        ratio: (Math.max(lf, lb) + 0.05) / (Math.min(lf, lb) + 0.05),
+        fill,
+        background,
+      }
+    })
+    check(
+      contrast !== null && contrast.ratio >= 4.5,
+      '文字与背景的对比度达到 WCAG AA（4.5:1）',
+      contrast
+        ? `实测 ${contrast.ratio.toFixed(2)}:1（文字 rgb(${contrast.fill.join(',')}) / 背景 rgb(${contrast.background.join(',')})）`
+        : '未找到文字像素',
+    )
+
     await exportCanvas(page, 'nameplate-custom-texture.png')
     await page.screenshot({ path: path.join(OUT_DIR, 'studio-custom-texture.png'), fullPage: true })
 

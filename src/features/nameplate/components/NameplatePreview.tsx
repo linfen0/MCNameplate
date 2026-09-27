@@ -80,7 +80,11 @@ export function NameplatePreview({
       {result ? (
         <p className="font-sans text-xs leading-relaxed text-ink-300">
           {config.aspect === 'auto' ? '自适应' : '固定'}宽高比 {size.width}×{size.height} · ID 文本放大{' '}
-          {result.textScale}× ·{' '}
+          {result.textScale}× · 文字色 <code className="font-mono text-[11px]">{result.textFill}</code> 对比度{' '}
+          <span className={result.textContrast >= 4.5 ? 'text-grass-400' : 'text-gold-400'}>
+            {result.textContrast.toFixed(1)}:1 {result.textContrast >= 4.5 ? '（WCAG AA ✓）' : '（低于 AA，已自动加压暗底）'}
+          </span>{' '}
+          ·{' '}
           {result.hasSkin
             ? `头像 ${result.head3d ? 'three.js 3D 立体' : config.headStyle === 'iso' ? '3D 不可用，已回退 2D' : '2D 正面'}`
             : '尚未载入皮肤'}
