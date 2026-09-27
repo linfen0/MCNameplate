@@ -1,6 +1,7 @@
 /** 名牌底板：背景纹理、外框倒角、分割线、头像肖像位、文字压暗底 */
 
 import { rgbaToCanvas } from '../../../lib/imageIo'
+import { BACKDROP_ALPHA, scrimDirection, scrimTintOf, scrimTone } from '../../../lib/scrim'
 import { getPanelTexture } from '../../../lib/textures'
 import type { Theme } from '../../../lib/themes'
 import type { Rect } from '../../../lib/types'
@@ -89,7 +90,11 @@ export function drawAvatarSlot(ctx: CanvasRenderingContext2D, plan: LayoutPlan, 
   ctx.fillRect(slot.x + slot.width - t, slot.y + t, t, slot.height - t)
 }
 
-/** 纹理底色上给 ID 加一层 50% 棋盘格压暗，保证文字可读 */
+/**
+ * 用户手动打开的“文字压暗 / 提亮底”：装饰性的 1 像素棋盘格（像素画 dither 惯例）。
+ * 颜色取自底色同族的暗部 / 亮部，而不是纯黑纯白 —— 观感上是材质本身变深，而不是贴了块补丁。
+ * 点阵只盖住一半像素，所以它**不负责** WCAG 达标；真正兜底的是 drawIdText 里那层均匀柔化底。
+ */
 export function drawTextBackdrop(
   ctx: CanvasRenderingContext2D,
   plan: LayoutPlan,
@@ -99,13 +104,16 @@ export function drawTextBackdrop(
   if (!enabled || !theme.textured) return
   const box = plan.idBox
   const cell = Math.max(1, plan.unit)
+  const tint = scrimTintOf(theme)
+  const backdrop = scrimTone(tint, scrimDirection(tint))
 
   const patternCanvas = document.createElement('canvas')
   patternCanvas.width = cell * 2
   patternCanvas.height = cell * 2
   const patternCtx = patternCanvas.getContext('2d')
   if (!patternCtx) return
-  patternCtx.fillStyle = 'rgba(0, 0, 0, 0.42)'
+  patternCtx.fillStyle = backdrop
+  patternCtx.globalAlpha = BACKDROP_ALPHA
   patternCtx.fillRect(0, 0, cell, cell)
   patternCtx.fillRect(cell, cell, cell, cell)
 

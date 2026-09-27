@@ -221,6 +221,35 @@ const OUTLINE_OFFSETS: Array<[number, number]> = [
   [1, 1],
 ]
 
+export interface TextBlockMetrics {
+  /** 原生点阵宽度（含四周留白） */
+  width: number
+  /** 原生点阵高度（含四周留白） */
+  height: number
+  /** 四周对称留白（原生像素） */
+  padding: number
+  lineHeight: number
+}
+
+/**
+ * 纯函数：算出文字块的原生点阵尺寸。
+ * 尺寸只取决于字体 / 文本 / 描边，与颜色无关 —— 绘制、底衬定位、单测共用一份算法，
+ * 免得两处各算一遍慢慢走样。
+ */
+export function measureTextBlock(options: TextBlockOptions): TextBlockMetrics {
+  const { text, font, shadow = null, outline = null, letterSpacing = 0 } = options
+  const lines = text.length > 0 ? text.split('\n') : ['']
+  const advance = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
+  const padding = (outline ? 1 : 0) + (shadow ? Math.max(0, shadow.offset) : 0)
+  const lineHeight = options.lineHeight ?? textInkMetrics(font, text).height
+  return {
+    width: advance + padding * 2,
+    height: lines.length * lineHeight + padding * 2,
+    padding,
+    lineHeight,
+  }
+}
+
 /**
  * 在原生点阵尺寸下合成文字块（纯函数，可在 Node 中直接测试）。
  * 输出像素的 alpha 只可能是 0 或 255。
@@ -234,17 +263,13 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
     outline = null,
     letterSpacing = 0,
     opacity = 1,
-    lineHeight = textInkMetrics(font, text).height,
   } = options
 
   const lines = text.length > 0 ? text.split('\n') : ['']
-  const width = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
-  const padding = (outline ? 1 : 0) + (shadow ? Math.max(0, shadow.offset) : 0)
+  const metrics = measureTextBlock(options)
+  const { padding, lineHeight } = metrics
   const ink = textInkMetrics(font, lines.join(''))
-  const image = createImage(
-    width + padding * 2,
-    lines.length * lineHeight + padding * 2,
-  )
+  const image = createImage(metrics.width, metrics.height)
   // 让第一行的墨迹顶边正好落在 padding 处
   const firstBaseline = padding - ink.top
   const ascent = -ink.top
@@ -295,7 +320,12 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
   return { image, padding, lineHeight, supported }
 }
 
-export function blockSize(block: TextBlock, scale: number): { width: number; height: number } {
+/** 只需要点阵尺寸的东西（文字块本体，或只有尺寸的占位对象） */
+export interface SizedBitmap {
+  image: { width: number; height: number }
+}
+
+export function blockSize(block: SizedBitmap, scale: number): { width: number; height: number } {
   const k = Math.max(1, Math.floor(scale))
   return { width: block.image.width * k, height: block.image.height * k }
 }
@@ -329,7 +359,7 @@ function toCanvas(block: TextBlock): HTMLCanvasElement {
 
 /** 纯函数：算出文字块最终落在画布上的位置与尺寸（画布与 SVG 导出共用同一套对位逻辑） */
 export function placeTextBlock(
-  block: TextBlock,
+  block: SizedBitmap,
   target: { x: number; y: number; width: number; height: number },
   scale: number,
   align: 'left' | 'center' = 'center',
