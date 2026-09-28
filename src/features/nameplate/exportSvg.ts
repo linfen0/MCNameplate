@@ -145,39 +145,46 @@ export interface SvgTextInput {
 
 /**
  * ID 文字：每个字符一个 <g>，内部按颜色拆分矢量路径。
- * 通过“按字符切片文字块位图”实现，阴影/描边都保留在同一字符分组里。
+ * 通过“按字符切片文字块位图”实现，阴影/描边都保留在同一字符分组里；
+ * 折行后每个字符只在本行那一带里找墨迹，不会把下一行的像素算进来。
  */
 export function svgTextGroup(font: PixelFontSpec, input: SvgTextInput): string {
   const { text, block, scale, placement, outline = false } = input
-  const metrics = measureText(font, text, 0)
-  void metrics
+  const lines = input.lines && input.lines.length > 0 ? input.lines : text.length > 0 ? text.split('\n') : ['']
   const groups: string[] = []
-  let pen = 0
-  const chars = [...text]
+  let index = 0
 
-  chars.forEach((char, index) => {
-    const advance = measureText(font, char).advance
-    if (/\s/.test(char)) {
-      // 空格没有自己的墨迹；不能靠“切片里有没有像素”判断，
-      // 否则会把相邻字符的阴影算进来，凭空多出一个图层
-      pen += advance
-      return
-    }
-    // 向右多取 1 列，把 1 像素的阴影带进本字符的图层；
-    // 有描边时左右各多出 1 列，也要带进来
-    const lead = outline ? 1 : 0
-    const from = pen + block.padding - lead
-    const to = outline ? from + advance + 2 : pen + advance + 1
-    const runs = pixelRuns(block.image, from, to)
-    pen += advance
-    if (runs.length === 0) return
-    const paths = runsToPath(runs, scale, placement.x, placement.y)
-      .map(({ color, d }) => `<path id="字形-${color.slice(1)}" d="${d}" fill="${color}" />`)
-      .join('')
-    const label = char === '<' ? 'lt' : char === '>' ? 'gt' : char === '&' ? 'amp' : char === ' ' ? 'space' : char
-    groups.push(
-      `    <g id="ID文字-${String(index + 1).padStart(2, '0')}-${label}">${paths}</g>`,
+  lines.forEach((line, lineIndex) => {
+    const rowTop = Math.max(0, block.padding + lineIndex * block.lineHeight - 1)
+    const rowBottom = Math.min(
+      block.image.height,
+      block.padding + (lineIndex + 1) * block.lineHeight + 1,
     )
+    let pen = 0
+    for (const char of line) {
+      const advance = measureText(font, char).advance
+      if (/\s/.test(char)) {
+        // 空格没有自己的墨迹；不能靠“切片里有没有像素”判断，
+        // 否则会把相邻字符的阴影算进来，凭空多出一个图层
+        pen += advance
+        index++
+        continue
+      }
+      // 向右多取 1 列，把 1 像素的阴影带进本字符的图层；
+      // 有描边时左右各多出 1 列，也要带进来
+      const lead = outline ? 1 : 0
+      const from = pen + block.padding - lead
+      const to = outline ? from + advance + 2 : pen + advance + 1
+      const runs = pixelRuns(block.image, from, to, { top: rowTop, bottom: rowBottom })
+      pen += advance
+      index++
+      if (runs.length === 0) continue
+      const paths = runsToPath(runs, scale, placement.x, placement.y)
+        .map(({ color, d }) => `<path id="字形-${color.slice(1)}" d="${d}" fill="${color}" />`)
+        .join('')
+      const label = char === '<' ? 'lt' : char === '>' ? 'gt' : char === '&' ? 'amp' : char === ' ' ? 'space' : char
+      groups.push(`    <g id="ID文字-${String(index).padStart(2, '0')}-${label}">${paths}</g>`)
+    }
   })
 
   return groups.join('\n')
@@ -449,7 +456,7 @@ export function buildNameplateSvg(
   const font = getPixelFont(config.fontId)
 
   // 文字（与画布渲染、3D 导出共用同一份排版）
-  const { text, block, scale, placement, outline } = layoutIdText(font, theme, config, layout.idBox)
+  const { text, lines, block, scale, placement, outline } = layoutIdText(font, theme, config, layout.idBox)
 
   // 背景纹理
   let background: SvgBackgroundImage | null = null
@@ -504,6 +511,7 @@ export function buildNameplateSvg(
     config,
     text: {
       text,
+      lines,
       block,
       scale,
       placement,

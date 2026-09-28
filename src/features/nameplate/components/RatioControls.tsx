@@ -1,6 +1,12 @@
 import { ChipRow, Field, PixelButton, PixelChip, PixelSlider } from '../../../components/pixel'
 import { GOLDEN_MINOR, snapToGolden } from '../../../lib/golden'
-import { ASPECT_PRESETS, SPLIT_PRESETS, type AspectSetting, type NameplateConfig } from '../config'
+import {
+  ASPECT_PRESETS,
+  MAX_ID_LINES_OPTIONS,
+  SPLIT_PRESETS,
+  type AspectSetting,
+  type NameplateConfig,
+} from '../config'
 import { resolveOutputSize } from '../resolve'
 
 export interface RatioControlsProps {
@@ -21,14 +27,16 @@ export function RatioControls({ config, patch }: RatioControlsProps) {
   const golden = config.splitMode === 'ratio'
   const size = resolveOutputSize(config)
   const aspectText =
-    config.aspect === 'auto' ? `自适应 ${(size.width / size.height).toFixed(2)} : 1` : `${config.aspect.toFixed(2)} : 1`
+    config.aspect === 'auto'
+      ? `自动选到 ${(size.width / size.height).toFixed(2)} : 1`
+      : `${config.aspect.toFixed(2)} : 1`
 
   return (
     <div className="space-y-5">
       <Field
         label="铭牌宽高比"
         aside={<span className="mc-label text-ink-300">{`${size.width}×${size.height}`}</span>}
-        hint={`当前 ${aspectText} · 自适应会按 ID 长度自动定宽，短 ID 不空旷、长 ID 不挤字`}
+        hint={`当前 ${aspectText} · 铭牌只用这几个标准规格；文字长度不改矩形，改的是矩形里的排法（换行 + 缩放）`}
       >
         <ChipRow>
           {ASPECT_PRESETS.map((preset) => (
@@ -68,6 +76,23 @@ export function RatioControls({ config, patch }: RatioControlsProps) {
               title={preset.hint}
             >
               {preset.label}
+            </PixelChip>
+          ))}
+        </ChipRow>
+      </Field>
+
+      <Field
+        label="ID 最多折几行"
+        hint="比例固定后，长 ID 靠换行 + 缩放塞满名字区；单行放不下时会自动折到设定行数再定字号"
+      >
+        <ChipRow>
+          {MAX_ID_LINES_OPTIONS.map((lines) => (
+            <PixelChip
+              key={lines}
+              active={config.maxIdLines === lines}
+              onClick={() => patch({ maxIdLines: lines })}
+            >
+              {lines} 行
             </PixelChip>
           ))}
         </ChipRow>

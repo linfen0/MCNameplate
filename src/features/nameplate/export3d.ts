@@ -262,6 +262,10 @@ export interface Build3DInput {
     scale: number
     placement: { x: number; y: number; width: number; height: number }
     font: { measure: (char: string) => number; padding: number }
+    /** 折行后的每一行（与画布同一份排版） */
+    lines?: string[]
+    /** 行高（原生像素） */
+    lineHeight?: number
     fill: string
     shadow: string | null
     /** 同族描边色；有描边时文字会多出一圈几何体 */
@@ -500,68 +504,79 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
     addMaterial({ name: '文字-填充', color: text.fill })
     if (text.shadow) addMaterial({ name: '文字-阴影', color: text.shadow })
     if (text.outline) addMaterial({ name: '文字-描边', color: text.outline })
-    const chars = [...text.text]
+    const lines = text.lines && text.lines.length > 0 ? text.lines : [text.text]
     const textImage = text.image
     const scale = text.scale
     const originX = text.placement.x
     const originY = text.placement.y
-    let pen = 0
-    chars.forEach((char, index) => {
-      const advance = text.font.measure(char)
-      if (!/\s/.test(char)) {
-        // 有描边时左右各多出 1 列，切分字符几何体时要带进来
-        const lead = text.outline ? 1 : 0
-        const from = Math.trunc(pen + text.font.padding - lead)
-        const to = text.outline ? from + advance + 2 : Math.trunc(pen + advance + 1)
-        const quads: SceneQuad[] = []
-        for (let y = 0; y < textImage.height; y++) {
-          let runStart = -1
-          let runColor: string | null = null
-          for (let x = from; x <= to; x++) {
-            let color: string | null = null
-            if (x < to) {
-              const i = (y * textImage.width + x) * 4
-              if (textImage.data[i + 3] > 0) {
-                const rgb = `#${[0, 1, 2]
-                  .map((c) => textImage.data[i + c].toString(16).padStart(2, '0'))
-                  .join('')}`
-                // 用颜色判定填充 / 描边 / 阴影层
-                if (text.outline) {
-                  color = rgb === text.outline.slice(0, 7).toLowerCase() ? '文字-描边' : '文字-填充'
-                } else {
-                  color = text.shadow && isShadowPixel(rgb, text.fill, text.shadow) ? '文字-阴影' : '文字-填充'
+    let index = 0
+    lines.forEach((line, lineIndex) => {
+      // 折行后每个字符只在本行那一带里找像素
+      const rowHeight = text.lineHeight ?? textImage.height
+      const rowTop = lines.length > 1 ? Math.max(0, text.font.padding + lineIndex * rowHeight - 1) : 0
+      const rowBottom =
+        lines.length > 1
+          ? Math.min(textImage.height, text.font.padding + (lineIndex + 1) * rowHeight + 1)
+          : textImage.height
+      let pen = 0
+      for (const char of line) {
+        const advance = text.font.measure(char)
+        if (!/\s/.test(char)) {
+          // 有描边时左右各多出 1 列，切分字符几何体时要带进来
+          const lead = text.outline ? 1 : 0
+          const from = Math.trunc(pen + text.font.padding - lead)
+          const to = text.outline ? from + advance + 2 : Math.trunc(pen + advance + 1)
+          const quads: SceneQuad[] = []
+          for (let y = rowTop; y < rowBottom; y++) {
+            let runStart = -1
+            let runColor: string | null = null
+            for (let x = from; x <= to; x++) {
+              let color: string | null = null
+              if (x < to) {
+                const i = (y * textImage.width + x) * 4
+                if (textImage.data[i + 3] > 0) {
+                  const rgb = `#${[0, 1, 2]
+                    .map((c) => textImage.data[i + c].toString(16).padStart(2, '0'))
+                    .join('')}`
+                  // 用颜色判定填充 / 描边 / 阴影层
+                  if (text.outline) {
+                    color = rgb === text.outline.slice(0, 7).toLowerCase() ? '文字-描边' : '文字-填充'
+                  } else {
+                    color = text.shadow && isShadowPixel(rgb, text.fill, text.shadow) ? '文字-阴影' : '文字-填充'
+                  }
                 }
               }
-            }
-            if (color !== runColor) {
-              if (runStart >= 0 && runColor) {
-                quads.push(
-                  ...textRunQuads(
-                    to3d,
-                    // runStart 是整块点阵里的绝对 x（from = pen + padding），
-                    // 这里再乘一次 pen 会让每个字符依次右移，最后跑出底板
-                    originX + runStart * scale,
-                    originY + y * scale,
-                    (x - runStart) * scale,
-                    scale,
-                    runColor,
-                  ),
-                )
+              if (color !== runColor) {
+                if (runStart >= 0 && runColor) {
+                  quads.push(
+                    ...textRunQuads(
+                      to3d,
+                      // runStart 是整块点阵里的绝对 x（from = pen + padding），
+                      // 这里再乘一次 pen 会让每个字符依次右移，最后跑出底板
+                      originX + runStart * scale,
+                      originY + y * scale,
+                      (x - runStart) * scale,
+                      scale,
+                      runColor,
+                    ),
+                  )
+                }
+                runStart = color ? x : -1
+                runColor = color
               }
-              runStart = color ? x : -1
-              runColor = color
             }
           }
+          if (quads.length > 0) {
+            parts.push({
+              name: `字符-${String(index + 1).padStart(2, '0')}-${char}`,
+              group: 'ID文字',
+              quads,
+            })
+          }
         }
-        if (quads.length > 0) {
-          parts.push({
-            name: `字符-${String(index + 1).padStart(2, '0')}-${char}`,
-            group: 'ID文字',
-            quads,
-          })
-        }
+        pen += advance
+        index++
       }
-      pen += advance
     })
   }
 
@@ -1356,6 +1371,8 @@ export function buildNameplateModelZip(
         scale: textLayout.scale,
         placement: textLayout.placement,
         font: { measure: (char: string) => measureText(font, char).advance, padding: textLayout.block.padding },
+        lines: textLayout.lines,
+        lineHeight: textLayout.block.lineHeight,
         fill: theme.text.fill,
         shadow: textLayout.outline ? null : config.shadow ? theme.text.shadow : null,
         outline: textLayout.outline,
