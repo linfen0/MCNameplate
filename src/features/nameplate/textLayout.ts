@@ -11,13 +11,14 @@ import {
   measureText,
   placeTextBlock,
   renderTextBlock,
+  textInkMetrics,
   type PixelFontSpec,
   type TextBlock,
   type TextPlacement,
 } from '../../lib/pixelFont'
 import type { Theme } from '../../lib/themes'
 import type { Rect } from '../../lib/types'
-import type { NameplateConfig } from './config'
+import { AUTO_TEXT_INK_RATIO, type NameplateConfig } from './config'
 import { idDisplayText } from './resolve'
 
 export interface IdTextLayoutOptions {
@@ -55,9 +56,14 @@ export function layoutIdText(
     !outline && config.shadow && theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null
   const padding = (outline ? 1 : 0) + (shadow ? Math.max(0, shadow.offset) : 0)
 
+  // 设计目标：字形墨迹高度 = 铭牌高度 × 1/φ²（黄金分割用在纵向）
+  const lineHeight = Math.max(1, textInkMetrics(font, text.replace(/\n/g, '')).height)
+  const targetScale = Math.max(1, Math.floor((config.height * AUTO_TEXT_INK_RATIO) / lineHeight))
   const fit = fitWrappedText(font, text, idBox, {
     maxLines: options.maxLines ?? config.maxIdLines,
     padding,
+    lineHeight,
+    targetScale,
     maxScale: 256,
   })
   const block = renderTextBlock({

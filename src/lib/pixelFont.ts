@@ -237,6 +237,11 @@ export interface FitWrappedOptions {
   lineHeight?: number
   maxScale?: number
   minScale?: number
+  /**
+   * 设计目标字号：字形的墨迹高度 = 铭牌高度 × 1/φ² 对应的倍率。
+   * 行数选择优先满足它 —— 一行能到目标就不折行；到不了才折行去够。
+   */
+  targetScale?: number
 }
 
 export interface WrappedFit {
@@ -251,15 +256,17 @@ export interface WrappedFit {
 }
 
 /**
- * 把一段 ID 折成不超过 maxLines 行，尽量折得均匀。
+ * 把一段 ID 折成 lines 行（行数不够折就尽量多折、折不动就一行）。
  * 优先在分隔符（_ - . 空格）后面断，其次在 小写→大写 / 字母↔数字 的交界断，
- * 都没有才按字符硬断（点阵字库每个字等宽，硬断也不难看）。
+ * 都没有就按字符硬断（点阵字库每个字等宽，硬断也不难看）。
+ * 只负责"怎么断"，用几行由 fitWrappedText 决定。
  */
-export function wrapText(font: PixelFontSpec, text: string, maxLines: number): string[] {
+export function wrapText(font: PixelFontSpec, text: string, lines: number): string[] {
   const paragraphs = text.split('\n')
   const out: string[] = []
+  const perParagraph = Math.max(1, lines)
   for (const paragraph of paragraphs) {
-    out.push(...wrapParagraph(createMeasure(font), [...paragraph], Math.max(1, maxLines)))
+    out.push(...wrapParagraph(createMeasure(font), [...paragraph], perParagraph))
   }
   return out.length > 0 ? out : ['']
 }
@@ -276,6 +283,10 @@ function wrapParagraph(measure: (value: string) => number, chars: string[], maxL
     else if (/[a-z]/.test(current) !== /[a-z]/.test(next)) breaks.add(i)
   }
   breaks.add(chars.length - 1)
+  if (breaks.size <= 1 && maxLines > 1) {
+    // 一个断点都没有（比如连续拼音）：按字符均分硬断
+    for (let i = 0; i < chars.length - 1; i++) breaks.add(i)
+  }
 
   const wrapAt = (target: number): string[] => {
     const lines: string[] = []
@@ -301,7 +312,6 @@ function wrapParagraph(measure: (value: string) => number, chars: string[], maxL
     return lines
   }
 
-  if (wrapAt(Number.POSITIVE_INFINITY).length <= maxLines) return [chars.join('')]
   // 二分找一个"最窄的目标宽度"，使折出来的行数不超过 maxLines —— 折得越均匀越好
   let lo = 1
   let hi = measure(chars.join(''))
@@ -321,7 +331,9 @@ function wrapParagraph(measure: (value: string) => number, chars: string[], maxL
 
 /**
  * 在给定的矩形里给 ID 找一组（行数 / 断点 / 整数倍率）：
- * 逐个候选行数各折一次，取"能放多大就放多大"的那组，同样大时行数少的优先。
+ *   · 字号不会超过设计目标（targetScale，字高 = 铭牌高 × 1/φ²），所以短 ID 不会撑满整块；
+ *   · 一行到得了目标就一行；到不了就折行去够（最多 maxLines 行）；
+ *   · 折了也够不到目标，就取"能放多大就多大"的那组。
  * 比例固定、文字自适应，都靠这一份。
  */
 export function fitWrappedText(
@@ -335,28 +347,40 @@ export function fitWrappedText(
   const lineHeight = Math.max(1, options.lineHeight ?? textInkMetrics(font, text.replace(/\n/g, '')).height)
   const maxScale = options.maxScale ?? 256
   const minScale = options.minScale ?? 1
+  const targetScale = Math.max(1, options.targetScale ?? maxScale)
   const usableWidth = Math.max(1, box.width - padding * 2)
   const usableHeight = Math.max(1, box.height - padding * 2)
   const measure = createMeasure(font)
 
-  let best: WrappedFit | null = null
+  let largest: WrappedFit | null = null
+  let onTarget: WrappedFit | null = null
   for (let count = 1; count <= maxLines; count++) {
     const lines = wrapText(font, text, count)
-    if (lines.length > count) continue
     const widest = Math.max(1, ...lines.map((line) => measure(line)))
     const contentHeight = lines.length * lineHeight
     const scale = Math.max(
       minScale,
       Math.min(
         maxScale,
+        targetScale,
         Math.floor(usableWidth / widest),
         Math.floor(usableHeight / contentHeight),
       ),
     )
     const fit: WrappedFit = { lines, text: lines.join('\n'), scale, lineHeight, padding }
-    if (!best || scale > best.scale || (scale === best.scale && lines.length < best.lines.length)) best = fit
+    if (
+      !largest ||
+      scale > largest.scale ||
+      (scale === largest.scale && lines.length < largest.lines.length)
+    ) {
+      largest = fit
+    }
+    // 达到目标 9 成以上就算"够到了"，这时候行数越少越好
+    if (scale >= targetScale * 0.9 && (!onTarget || lines.length < onTarget.lines.length)) {
+      onTarget = fit
+    }
   }
-  return best ?? { lines: [text], text, scale: minScale, lineHeight, padding }
+  return onTarget ?? largest ?? { lines: [text], text, scale: minScale, lineHeight, padding }
 }
 
 export interface TextBlockMetrics {
