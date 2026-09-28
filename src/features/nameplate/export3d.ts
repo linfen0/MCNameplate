@@ -264,6 +264,8 @@ export interface Build3DInput {
     font: { measure: (char: string) => number; padding: number }
     /** 折行后的每一行（与画布同一份排版） */
     lines?: string[]
+    /** 每一行的起始列偏移（按墨迹居中后不再等于 padding） */
+    lineOffsets?: number[]
     /** 行高（原生像素） */
     lineHeight?: number
     fill: string
@@ -522,10 +524,12 @@ export function buildNameplate3DScene(input: Build3DInput): Nameplate3DScene {
       for (const char of line) {
         const advance = text.font.measure(char)
         if (!/\s/.test(char)) {
+          // 每一行是按墨迹居中的，切片要加上该行的起始偏移
+          const offset = text.lineOffsets?.[lineIndex] ?? text.font.padding
           // 有描边时左右各多出 1 列，切分字符几何体时要带进来
           const lead = text.outline ? 1 : 0
-          const from = Math.trunc(pen + text.font.padding - lead)
-          const to = text.outline ? from + advance + 2 : Math.trunc(pen + advance + 1)
+          const from = Math.trunc(offset + pen - lead)
+          const to = text.outline ? from + advance + 2 : Math.trunc(offset + pen + advance + 1)
           const quads: SceneQuad[] = []
           for (let y = rowTop; y < rowBottom; y++) {
             let runStart = -1
@@ -1372,6 +1376,7 @@ export function buildNameplateModelZip(
         placement: textLayout.placement,
         font: { measure: (char: string) => measureText(font, char).advance, padding: textLayout.block.padding },
         lines: textLayout.lines,
+        lineOffsets: textLayout.block.lineOffsets,
         lineHeight: textLayout.block.lineHeight,
         fill: theme.text.fill,
         shadow: textLayout.outline ? null : config.shadow ? theme.text.shadow : null,

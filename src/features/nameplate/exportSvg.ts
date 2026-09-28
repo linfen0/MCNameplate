@@ -170,11 +170,13 @@ export function svgTextGroup(font: PixelFontSpec, input: SvgTextInput): string {
         index++
         continue
       }
+      // 每一行是按墨迹居中的，切片要加上该行的起始偏移
+      const offset = block.lineOffsets?.[lineIndex] ?? block.padding
       // 向右多取 1 列，把 1 像素的阴影带进本字符的图层；
       // 有描边时左右各多出 1 列，也要带进来
       const lead = outline ? 1 : 0
-      const from = pen + block.padding - lead
-      const to = outline ? from + advance + 2 : pen + advance + 1
+      const from = offset + pen - lead
+      const to = outline ? from + advance + 2 : offset + pen + advance + 1
       const runs = pixelRuns(block.image, from, to, { top: rowTop, bottom: rowBottom })
       pen += advance
       index++

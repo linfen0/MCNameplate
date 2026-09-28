@@ -216,7 +216,9 @@ describe('renderTextBlock（不依赖任何字体文件）', () => {
     const font = getPixelFont('silkscreen')
     const block = renderTextBlock({ text: 'ABC', font, fill: '#ffffff' })
     expect(block.image.height).toBe(textInkMetrics(font, 'ABC').height)
-    expect(block.image.width).toBe(measureText(font, 'ABC').advance)
+    // 宽度按墨迹跨度算（不含末尾步进空隙），这样折行后每行才能真正居中
+    const measured = measureText(font, 'ABC')
+    expect(block.image.width).toBe(measured.inkWidth - measured.inkFrom)
     let opaque = 0
     for (let i = 3; i < block.image.data.length; i += 4) if (block.image.data[i] > 0) opaque++
     expect(opaque).toBeGreaterThan(20)

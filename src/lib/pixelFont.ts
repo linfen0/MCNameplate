@@ -130,25 +130,33 @@ export function textInkMetrics(font: PixelFontSpec, text: string): InkMetrics {
 export interface TextMeasurement {
   /** 落笔推进宽度（原生像素） */
   advance: number
-  /** 实际墨迹宽度（原生像素） */
+  /** 墨迹右边缘（相对落笔点，原生像素） */
   inkWidth: number
+  /** 墨迹左边缘（相对落笔点）——比例字体第一个字可能自带左边距 */
+  inkFrom: number
 }
 
 /** 纯函数：按点阵字库计算一行文字的宽度 */
 export function measureText(font: PixelFontSpec, text: string, letterSpacing = 0): TextMeasurement {
   let pen = 0
   let inkWidth = 0
+  let inkFrom = Number.POSITIVE_INFINITY
   for (const char of text) {
     const glyph = glyphOf(font, char)
     if (!glyph) {
+      inkFrom = Math.min(inkFrom, pen)
       pen += TOFU_ADVANCE + letterSpacing
-      inkWidth = pen
+      // 缺字画的是空心方块，占满整个步进，算墨迹时要按步进算
+      inkWidth = Math.max(inkWidth, pen)
       continue
     }
-    if (glyph.w > 0) inkWidth = Math.max(inkWidth, pen + glyph.x + glyph.w)
+    if (glyph.w > 0) {
+      inkFrom = Math.min(inkFrom, pen + glyph.x)
+      inkWidth = Math.max(inkWidth, pen + glyph.x + glyph.w)
+    }
     pen += glyph.advance + letterSpacing
   }
-  return { advance: pen, inkWidth }
+  return { advance: pen, inkWidth, inkFrom: Number.isFinite(inkFrom) ? inkFrom : 0 }
 }
 
 /** 生成一个测量函数（纯计算，不需要 canvas） */
@@ -244,6 +252,10 @@ export interface FitWrappedOptions {
   padding?: number
   /** 行高（原生像素），默认取单行墨迹高度 */
   lineHeight?: number
+  /** 多行时的行间空隙（原生像素） */
+  lineGap?: number
+  /** 投影往右下偏的像素数（算可用空间时要扣掉） */
+  shadowOffset?: number
   maxScale?: number
   minScale?: number
   /**
@@ -261,6 +273,7 @@ export interface WrappedFit {
   /** 整数倍放大倍率 */
   scale: number
   lineHeight: number
+  lineGap: number
   padding: number
 }
 
@@ -354,19 +367,28 @@ export function fitWrappedText(
   const maxLines = Math.max(1, options.maxLines ?? 2)
   const padding = Math.max(0, options.padding ?? 0)
   const lineHeight = Math.max(1, options.lineHeight ?? textInkMetrics(font, text.replace(/\n/g, '')).height)
+  const lineGap = Math.max(0, options.lineGap ?? 0)
+  const shadowOffset = Math.max(0, options.shadowOffset ?? 0)
   const maxScale = options.maxScale ?? 256
   const minScale = options.minScale ?? 1
   const targetScale = Math.max(1, options.targetScale ?? maxScale)
-  const usableWidth = Math.max(1, box.width - padding * 2)
-  const usableHeight = Math.max(1, box.height - padding * 2)
-  const measure = createMeasure(font)
+  const overhead = padding * 2 + shadowOffset
+  const usableWidth = Math.max(1, box.width - overhead)
+  const usableHeight = Math.max(1, box.height - overhead)
 
   let largest: WrappedFit | null = null
   let onTarget: WrappedFit | null = null
   for (let count = 1; count <= maxLines; count++) {
     const lines = wrapText(font, text, count)
-    const widest = Math.max(1, ...lines.map((line) => measure(line)))
-    const contentHeight = lines.length * lineHeight
+    // 用墨迹跨度量宽度：和 renderTextBlock 里的块宽一致
+    const widest = Math.max(
+      1,
+      ...lines.map((line) => {
+        const measured = measureText(font, line)
+        return measured.inkWidth - measured.inkFrom
+      }),
+    )
+    const contentHeight = lines.length * lineHeight + (lines.length - 1) * lineGap
     const scale = Math.max(
       minScale,
       Math.min(
@@ -376,7 +398,7 @@ export function fitWrappedText(
         Math.floor(usableHeight / contentHeight),
       ),
     )
-    const fit: WrappedFit = { lines, text: lines.join('\n'), scale, lineHeight, padding }
+    const fit: WrappedFit = { lines, text: lines.join('\n'), scale, lineHeight, lineGap, padding }
     if (
       !largest ||
       scale > largest.scale ||
@@ -389,7 +411,9 @@ export function fitWrappedText(
       onTarget = fit
     }
   }
-  return onTarget ?? largest ?? { lines: [text], text, scale: minScale, lineHeight, padding }
+  return (
+    onTarget ?? largest ?? { lines: [text], text, scale: minScale, lineHeight, lineGap, padding }
+  )
 }
 
 export interface TextBlockMetrics {
@@ -410,14 +434,22 @@ export interface TextBlockMetrics {
 export function measureTextBlock(options: TextBlockOptions): TextBlockMetrics {
   const { text, font, shadow = null, outline = null, letterSpacing = 0 } = options
   const lines = text.length > 0 ? text.split('\n') : ['']
-  const advance = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
+  // 用**墨迹跨度**而不是步进宽：比例字体末尾那点步进空隙、以及首字的左边距
+  // 都不该算成留白，否则折行后每一行看着都偏一点
+  const inkSpan = Math.max(
+    1,
+    ...lines.map((line) => {
+      const measured = measureText(font, line, letterSpacing)
+      return measured.inkWidth - measured.inkFrom
+    }),
+  )
   const padding = (outline ? 1 : 0) + (shadow ? Math.max(0, shadow.offset) : 0)
   const lineHeight = options.lineHeight ?? textInkMetrics(font, text).height
   const lineGap = Math.max(0, options.lineGap ?? 0)
-  // 投影是往右下偏的：把偏移量也计进点阵尺寸，块本身才是"墨迹居中"的
+  // 投影往右下偏：把偏移量也计进点阵尺寸，块本身才是"墨迹居中"的
   const shadowOffset = shadow ? Math.max(0, shadow.offset) : 0
   return {
-    width: advance + shadowOffset + padding * 2,
+    width: inkSpan + shadowOffset + padding * 2,
     height: lines.length * lineHeight + (lines.length - 1) * lineGap + shadowOffset + padding * 2,
     padding,
     lineHeight,
@@ -443,10 +475,14 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
   const metrics = measureTextBlock(options)
   const { padding, lineHeight } = metrics
   const lineGap = Math.max(0, options.lineGap ?? 0)
-  const contentWidth = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
-  // 每一行在自己的内容宽度里居中：多行 ID 才不会左对齐挂着
-  const lineOffsets = lines.map((line) =>
-    padding + Math.max(0, Math.floor((contentWidth - measureText(font, line, letterSpacing).advance) / 2)),
+  const measuredLines = lines.map((line) => measureText(font, line, letterSpacing))
+  const contentInk = Math.max(1, ...measuredLines.map((measured) => measured.inkWidth - measured.inkFrom))
+  // 每一行按**墨迹**居中（和左/右留白都无关）：多行 ID 才不会左对齐挂着
+  const lineOffsets = measuredLines.map(
+    (measured) =>
+      padding +
+      Math.floor((contentInk - (measured.inkWidth - measured.inkFrom)) / 2) -
+      measured.inkFrom,
   )
   const ink = textInkMetrics(font, lines.join(''))
   const image = createImage(metrics.width, metrics.height)

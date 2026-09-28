@@ -21,6 +21,9 @@ import type { Rect } from '../../lib/types'
 import { AUTO_TEXT_INK_RATIO, type NameplateConfig } from './config'
 import { idDisplayText } from './resolve'
 
+/** 多行时行间留 1 个原生像素，不然两行会贴在一起 */
+const LINE_GAP = 1
+
 export interface IdTextLayoutOptions {
   /** 最多折几行；不传就用配置里的 maxIdLines */
   maxLines?: number
@@ -63,6 +66,8 @@ export function layoutIdText(
     maxLines: options.maxLines ?? config.maxIdLines,
     padding,
     lineHeight,
+    lineGap: LINE_GAP,
+    shadowOffset: shadow ? Math.max(0, shadow.offset) : 0,
     targetScale,
     maxScale: 256,
   })
@@ -74,6 +79,7 @@ export function layoutIdText(
     shadow,
     opacity: placeholder ? 0.4 : 1,
     lineHeight: fit.lineHeight,
+    lineGap: fit.lineGap,
   })
   const placement = placeTextBlock(block, idBox, fit.scale, 'center', 'middle')
   return {
