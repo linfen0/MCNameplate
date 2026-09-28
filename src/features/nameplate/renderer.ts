@@ -29,6 +29,8 @@ export interface RenderResult {
   headScale: number
   /** ID 放大倍率 */
   textScale: number
+  /** 折行后的每一行（单行时长度 1） */
+  lines: string[]
   /** 文字配色方案（亮字 / 同族描边 / 柔化底），导出时与画布保持一致 */
   textStyle: TextStyle
   /** ID 为空，画布上是占位文字 */
@@ -93,6 +95,7 @@ export function renderNameplate(
   canvas.dataset.textContrast = idResult.style.contrast.toFixed(2)
   canvas.dataset.textThreshold = String(idResult.style.threshold)
   canvas.dataset.textRoute = idResult.style.route
+  canvas.dataset.textLines = String(idResult.lines.length)
   canvas.dataset.textScrim = idResult.style.scrim
     ? `${idResult.style.scrim.color}@${idResult.style.scrim.alpha}`
     : ''
@@ -113,6 +116,7 @@ export function renderNameplate(
     height: layout.height,
     headScale: layout.headScale,
     textScale: idResult.scale,
+    lines: idResult.lines,
     textStyle: idResult.style,
     placeholderId: idResult.placeholder,
     hasSkin,

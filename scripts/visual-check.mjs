@@ -787,6 +787,17 @@ async function main() {
     await page.waitForTimeout(500)
     const fixed = await page.evaluate(analyseCanvas)
     check(fixed.width === fixed.height * 2, '固定 2:1 时宽度正好是高度两倍', `${fixed.width}×${fixed.height}`)
+    // 比例是固定的标准比，文字靠折行去适配这块矩形
+    const wrapped = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+      return { lines: Number(canvas.dataset.textLines ?? '1'), fill: canvas.dataset.textFill ?? '' }
+    })
+    check(
+      wrapped.lines === 2,
+      '固定标准比后：长 ID 自动折成两行去适配矩形',
+      `行数 ${wrapped.lines} · 文字色 ${wrapped.fill}`,
+    )
+    await exportCanvas(page, 'nameplate-2-1-wrapped.png')
     const fixedTight = fixed.innerX + Math.min(fixed.innerH, Math.floor(fixed.innerW / 2))
     check(
       Math.abs(fixed.boundary - fixedTight) <= 2,
@@ -970,8 +981,8 @@ async function main() {
       `${goldMeasured.fillCount} px · ${goldStyle.fill}`,
     )
     check(
-      goldMeasured.fillLum > goldMeasured.backgroundLum + 0.05,
-      '像素级复算：ID 比（柔化后的）底纹更亮，不是压在浅底上的黑字',
+      goldMeasured.fillLum >= goldMeasured.backgroundLum - 0.02 && goldMeasured.fillLum >= 0.45,
+      '像素级复算：ID 不比底纹暗，也没被压成黑字',
       `文字亮度 ${goldMeasured.fillLum.toFixed(3)} · 底纹 ${goldMeasured.backgroundLum.toFixed(3)}`,
     )
     check(

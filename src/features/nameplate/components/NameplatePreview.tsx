@@ -79,8 +79,8 @@ export function NameplatePreview({
 
       {result ? (
         <p className="font-sans text-xs leading-relaxed text-ink-300">
-          {config.aspect === 'auto' ? '自适应' : '固定'}宽高比 {size.width}×{size.height} · ID 文本放大{' '}
-          {result.textScale}× · 文字色{' '}
+          {config.aspect === 'auto' ? '自动选标准比' : '标准比'} {size.width}×{size.height} · ID{' '}
+          {result.lines.length > 1 ? `${result.lines.length} 行` : '单行'} 放大 {result.textScale}× · 文字色{' '}
           <code className="font-mono text-[11px]">{result.textStyle.fill}</code> 对比度{' '}
           <span
             className={
