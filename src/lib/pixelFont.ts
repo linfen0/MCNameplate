@@ -221,6 +221,144 @@ const OUTLINE_OFFSETS: Array<[number, number]> = [
   [1, 1],
 ]
 
+/* ------------------------------------------------------------------ */
+/* 折行与适配：固定比例的矩形里，靠换行 + 缩放把 ID 塞得饱满             */
+/* ------------------------------------------------------------------ */
+
+/** 断行时留在上一行末尾的分隔符（Minecraft ID 里最常见的是下划线） */
+const BREAK_AFTER = /[_\-.·\s]/
+
+export interface FitWrappedOptions {
+  /** 最多折几行（名牌一般 1-2 行，长 ID 才给到 3） */
+  maxLines?: number
+  /** 四周留白（原生像素），要和 TextBlockOptions 里的 outline / shadow 一致 */
+  padding?: number
+  /** 行高（原生像素），默认取单行墨迹高度 */
+  lineHeight?: number
+  maxScale?: number
+  minScale?: number
+}
+
+export interface WrappedFit {
+  /** 折出来的每一行 */
+  lines: string[]
+  /** 直接可以喂给 renderTextBlock 的文本（\n 连接） */
+  text: string
+  /** 整数倍放大倍率 */
+  scale: number
+  lineHeight: number
+  padding: number
+}
+
+/**
+ * 把一段 ID 折成不超过 maxLines 行，尽量折得均匀。
+ * 优先在分隔符（_ - . 空格）后面断，其次在 小写→大写 / 字母↔数字 的交界断，
+ * 都没有才按字符硬断（点阵字库每个字等宽，硬断也不难看）。
+ */
+export function wrapText(font: PixelFontSpec, text: string, maxLines: number): string[] {
+  const paragraphs = text.split('\n')
+  const out: string[] = []
+  for (const paragraph of paragraphs) {
+    out.push(...wrapParagraph(createMeasure(font), [...paragraph], Math.max(1, maxLines)))
+  }
+  return out.length > 0 ? out : ['']
+}
+
+function wrapParagraph(measure: (value: string) => number, chars: string[], maxLines: number): string[] {
+  if (maxLines <= 1 || chars.length <= 1) return [chars.join('')]
+  const breaks = new Set<number>()
+  for (let i = 0; i < chars.length - 1; i++) {
+    const current = chars[i]
+    const next = chars[i + 1]
+    if (BREAK_AFTER.test(current)) breaks.add(i)
+    else if (/[a-z0-9]/.test(current) && /[A-Z]/.test(next)) breaks.add(i)
+    else if (/[0-9]/.test(current) !== /[0-9]/.test(next)) breaks.add(i)
+    else if (/[a-z]/.test(current) !== /[a-z]/.test(next)) breaks.add(i)
+  }
+  breaks.add(chars.length - 1)
+
+  const wrapAt = (target: number): string[] => {
+    const lines: string[] = []
+    let start = 0
+    while (start < chars.length) {
+      let end = start
+      let candidate = -1
+      for (let i = start; i < chars.length; i++) {
+        if (!breaks.has(i)) continue
+        const width = measure(chars.slice(start, i + 1).join(''))
+        if (candidate === -1) {
+          candidate = i
+          end = i
+          continue
+        }
+        if (width <= target) end = i
+        else break
+      }
+      if (candidate === -1) end = chars.length - 1
+      lines.push(chars.slice(start, end + 1).join(''))
+      start = end + 1
+    }
+    return lines
+  }
+
+  if (wrapAt(Number.POSITIVE_INFINITY).length <= maxLines) return [chars.join('')]
+  // 二分找一个"最窄的目标宽度"，使折出来的行数不超过 maxLines —— 折得越均匀越好
+  let lo = 1
+  let hi = measure(chars.join(''))
+  let best = wrapAt(hi)
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const lines = wrapAt(mid)
+    if (lines.length <= maxLines) {
+      best = lines
+      hi = mid - 1
+    } else {
+      lo = mid + 1
+    }
+  }
+  return best
+}
+
+/**
+ * 在给定的矩形里给 ID 找一组（行数 / 断点 / 整数倍率）：
+ * 逐个候选行数各折一次，取"能放多大就放多大"的那组，同样大时行数少的优先。
+ * 比例固定、文字自适应，都靠这一份。
+ */
+export function fitWrappedText(
+  font: PixelFontSpec,
+  text: string,
+  box: { width: number; height: number },
+  options: FitWrappedOptions = {},
+): WrappedFit {
+  const maxLines = Math.max(1, options.maxLines ?? 2)
+  const padding = Math.max(0, options.padding ?? 0)
+  const lineHeight = Math.max(1, options.lineHeight ?? textInkMetrics(font, text.replace(/\n/g, '')).height)
+  const maxScale = options.maxScale ?? 256
+  const minScale = options.minScale ?? 1
+  const usableWidth = Math.max(1, box.width - padding * 2)
+  const usableHeight = Math.max(1, box.height - padding * 2)
+  const measure = createMeasure(font)
+
+  let best: WrappedFit | null = null
+  for (let count = 1; count <= maxLines; count++) {
+    const lines = wrapText(font, text, count)
+    if (lines.length > count) continue
+    const widest = Math.max(1, ...lines.map((line) => measure(line)))
+    const contentHeight = lines.length * lineHeight
+    const scale = Math.max(
+      minScale,
+      Math.min(
+        maxScale,
+        Math.floor(usableWidth / widest),
+        Math.floor(usableHeight / contentHeight),
+      ),
+    )
+    const fit: WrappedFit = { lines, text: lines.join('\n'), scale, lineHeight, padding }
+    if (!best || scale > best.scale || (scale === best.scale && lines.length < best.lines.length)) best = fit
+  }
+  return best ?? { lines: [text], text, scale: minScale, lineHeight, padding }
+}
+
 export interface TextBlockMetrics {
   /** 原生点阵宽度（含四周留白） */
   width: number

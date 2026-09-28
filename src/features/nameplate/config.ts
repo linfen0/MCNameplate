@@ -7,7 +7,10 @@ import type { AvatarSide, HeadStyle, SplitMode } from './layout'
 import type { TextureFillMode } from '../../lib/palette'
 import { type CustomTexture } from './theme'
 
-/** 宽高比可以是一个固定值，也可以交给布局根据 ID 长度自适应 */
+/**
+ * 宽高比：只能从**标准比**里选（铭牌是有规格的物件，不该按文字长度连续变形）。
+ * 'auto' = 从标准比里挑最接近当前 ID 的一个，仍然是标准值。
+ */
 export type AspectSetting = number | 'auto'
 
 export interface NameplateConfig {
@@ -48,6 +51,8 @@ export interface NameplateConfig {
   textBackdrop: boolean
   /** 显示黄金分割辅助线（预览校核用） */
   showGuides: boolean
+  /** ID 最多折几行：比例固定后，靠换行 + 缩放把文字塞满矩形 */
+  maxIdLines: number
 }
 
 export interface AspectPreset {
@@ -57,13 +62,28 @@ export interface AspectPreset {
   value: AspectSetting
 }
 
+/**
+ * 标准比例表：铭牌只用这几个规格。
+ * 文字长度不参与"改矩形"，只参与"在矩形里怎么排"（换行 + 缩放）。
+ */
+export const STANDARD_ASPECTS = [PHI, 2, 3, 4, 5] as const
+
 export const ASPECT_PRESETS: AspectPreset[] = [
-  { id: 'auto', label: '自适应', hint: '按 ID 长度自动定宽，字号始终饱满不发空', value: 'auto' },
+  {
+    id: 'auto',
+    label: '自动选标准比',
+    hint: '按 ID 长度从下面几个标准比里挑最接近的一个（不会造出任意比值）',
+    value: 'auto',
+  },
+  { id: '5-1', label: '5 : 1', hint: '细长条幅', value: 5 },
   { id: '4-1', label: '4 : 1', hint: '常见胸牌比例', value: 4 },
   { id: '3-1', label: '3 : 1', hint: '经典长条名牌', value: 3 },
   { id: '2-1', label: '2 : 1', hint: '更方的铭牌', value: 2 },
   { id: 'phi', label: 'φ : 1', hint: '黄金比 1.618 : 1', value: PHI },
 ]
+
+export const MAX_ID_LINES_OPTIONS = [1, 2, 3] as const
+export const DEFAULT_MAX_ID_LINES = 2
 
 export const HEIGHT_OPTIONS = [256, 384, 512, 768, 1024] as const
 export const DEFAULT_HEIGHT = 512
@@ -152,6 +172,7 @@ export const DEFAULT_CONFIG: NameplateConfig = {
   // 这层装饰性压暗底默认关掉：底纹保持原样更和谐，需要时用户自己开
   textBackdrop: false,
   showGuides: false,
+  maxIdLines: DEFAULT_MAX_ID_LINES,
 }
 
 export function normalizeConfig(patch: Partial<NameplateConfig>): NameplateConfig {

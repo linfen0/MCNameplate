@@ -2,11 +2,7 @@
 
 import {
   blockSize,
-  createMeasure,
   drawTextBlock,
-  fitTextScale,
-  measureTextBlock,
-  placeTextBlock,
   renderTextBlock,
   type PixelFontSpec,
 } from '../../../lib/pixelFont'
@@ -16,7 +12,7 @@ import { relativeLuminance, rgbaToHex } from '../../../lib/color'
 import { planText, type TextStyle } from '../../../lib/textPlan'
 import { scrimTintOf, type BackgroundSample, type ScrimPlan } from '../../../lib/scrim'
 import { scrimSteps, type LayoutPlan } from '../layout'
-import { idDisplayText } from '../resolve'
+import { layoutIdText } from '../textLayout'
 
 export { MIN_TEXT_CONTRAST } from '../../../lib/textPlan'
 
@@ -81,8 +77,10 @@ function drawScrim(ctx: CanvasRenderingContext2D, plan: LayoutPlan, scrim: Scrim
 }
 
 export interface IdTextResult {
-  /** 实际绘制到名牌上的文字 */
+  /** 实际绘制到名牌上的文字（多行用 \n 连接） */
   text: string
+  /** 折出来的每一行 */
+  lines: string[]
   /** 最终放大倍率（1 字体像素 = scale 个画布像素） */
   scale: number
   placeholder: boolean
@@ -99,22 +97,10 @@ export function drawIdText(
   font: PixelFontSpec,
   config: NameplateConfig,
 ): IdTextResult {
-  const placeholder = config.id.trim().length === 0
-  const text = idDisplayText(config)
-  const samplingShadow = theme.text.shadow ? { color: theme.text.shadow, offset: 1 } : null
-
-  // 1) 先排版。文字块的尺寸只取决于字体 / 文本 / 描边，与颜色无关，
-  //    这里按“可能需要描边 / 投影”的留白量一次尺寸（1 原生像素），
-  //    采样矩形、缩放倍率、描边与文字块都用同一份，前后不会错位。
-  const samplingMetrics = measureTextBlock({ text, font, fill: theme.text.fill, shadow: samplingShadow })
-  const scale = fitTextScale(createMeasure(font), text, {
-    maxWidth: plan.idBox.width,
-    maxHeight: plan.idBox.height,
-    lineHeight: samplingMetrics.lineHeight,
-    padding: samplingMetrics.padding,
-    maxScale: 256,
-  })
-  const placement = placeTextBlock({ image: samplingMetrics }, plan.idBox, scale, 'center', 'middle')
+  // 1) 先排版：折行 + 缩放（与 SVG / 3D 导出共用同一份，见 textLayout.ts）。
+  //    排版只取决于字体 / 文本 / 描边，与颜色无关，所以可以先排好再决定用什么颜色。
+  const id = layoutIdText(font, theme, config, plan.idBox)
+  const { text, scale, placement } = id
 
   // 2) 采样文字背后的真实像素
   const background = sampleBackground(ctx, placement)
@@ -128,7 +114,7 @@ export function drawIdText(
     background,
     tint: scrimTintOf(theme),
     outline: config.textOutline,
-    textHeightPx: samplingMetrics.lineHeight * scale,
+    textHeightPx: id.lineHeight * scale,
   })
   if (style.scrim) drawScrim(ctx, plan, style.scrim, placement)
 
@@ -143,13 +129,15 @@ export function drawIdText(
     fill: style.fill,
     outline: style.outline,
     shadow: usedShadow,
-    opacity: placeholder ? 0.4 : 1,
+    opacity: id.placeholder ? 0.4 : 1,
+    lineHeight: id.lineHeight,
   })
   drawTextBlock(ctx, block, plan.idBox, scale, 'center', 'middle')
   return {
     text,
+    lines: id.lines,
     scale,
-    placeholder,
+    placeholder: id.placeholder,
     shadow: style.outline ?? (usedShadow ? usedShadow.color : null),
     style,
   }

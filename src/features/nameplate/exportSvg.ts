@@ -132,6 +132,8 @@ function svgAvatarPixels(image: RgbaImage, scale: number, originX: number, origi
 
 export interface SvgTextInput {
   text: string
+  /** 折行后的每一行（与画布同一份排版） */
+  lines?: string[]
   block: TextBlock
   scale: number
   placement: TextPlacement
