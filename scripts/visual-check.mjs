@@ -249,14 +249,43 @@ function sampleTextColors(style) {
   const fillLum = fill ? lumOf(fill[0], fill[1], fill[2]) : 0
   const outlineLum = outline ? lumOf(outline[0], outline[1], outline[2]) : null
   const backgroundLum = lumOf((modalKey >> 16) & 255, (modalKey >> 8) & 255, modalKey & 255)
+
+  // 紧邻文字的那一层：统计文字像素四周 2 / 4 像素处的颜色众数
+  // （垫过柔化底时，全局主色还是没垫底的底纹，只有紧邻的颜色才是文字真正压着的那层）
+  const near = new Map()
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]
+      if (key === fillKey) continue
+      let touches = false
+      for (const d of [2, 4]) {
+        for (const [dx, dy] of [[d, 0], [-d, 0], [0, d], [0, -d]]) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+          const j = (ny * w + nx) * 4
+          if (((data[j] << 16) | (data[j + 1] << 8) | data[j + 2]) === fillKey) touches = true
+        }
+      }
+      if (touches) near.set(key, (near.get(key) ?? 0) + 1)
+    }
+  }
+  const neighborKey = [...near.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  const neighborLum =
+    neighborKey === undefined
+      ? backgroundLum
+      : lumOf((neighborKey >> 16) & 255, (neighborKey >> 8) & 255, neighborKey & 255)
   return {
     fillCount,
     outlineCount,
     fillLum,
     outlineLum,
     backgroundLum,
+    neighborLum,
     fillToOutline: outlineLum === null ? null : ratio(fillLum, outlineLum),
     fillToBackground: ratio(fillLum, backgroundLum),
+    fillToNeighbor: ratio(fillLum, neighborLum),
   }
 }
 
@@ -902,11 +931,11 @@ async function main() {
     check(
       textStyle.outline
         ? measured.fillToOutline >= textStyle.threshold
-        : measured.fillToBackground >= textStyle.threshold,
+        : measured.fillToNeighbor >= textStyle.threshold,
       '文字与紧挨着它的那一层达到 WCAG AA',
       textStyle.outline
         ? `文字 ${textStyle.fill} ↔ 描边 ${textStyle.outline} = ${measured.fillToOutline.toFixed(2)}:1（阈值 ${textStyle.threshold}:1）`
-        : `文字 ${textStyle.fill} ↔ 底纹 = ${measured.fillToBackground.toFixed(2)}:1（阈值 ${textStyle.threshold}:1）`,
+        : `文字 ${textStyle.fill} ↔ 紧邻底纹 = ${measured.fillToNeighbor.toFixed(2)}:1（阈值 ${textStyle.threshold}:1）`,
     )
     check(
       measured.fillLum > measured.backgroundLum,

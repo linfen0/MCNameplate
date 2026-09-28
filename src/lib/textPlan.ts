@@ -30,8 +30,6 @@ export const LIGHT_SCRIM_MAX = 0.44
  */
 export const MAX_DIRECT_DISTANCE = 2
 
-/** 底纹亮端到这个亮度就当作"浅色材质"：此时同族暗字零改动且对比度更高，优先它 */
-export const LIGHT_SURFACE_LUMINANCE = 0.6
 
 /** 达标走的哪条路，界面据此解释 */
 export type TextRoute = 'palette' | 'halo' | 'scrim' | 'dark'
@@ -176,12 +174,10 @@ export function planText(input: TextPlanInput): TextStyle {
       }
     : null
 
-  // 亮端 ≥ 0.6 说明底纹本来就是浅色材质：那时同族暗字零改动、对比度还更高，优先它；
-  // 否则优先「亮字 + 最轻的同色系柔化底」，只有它不行才退回暗字。
-  const preferDarkText = range.high >= LIGHT_SURFACE_LUMINANCE
-  const preferred = (preferDarkText ? [darkPlan, scrimPlan] : [scrimPlan, darkPlan]).find(
-    (plan): plan is TextStyle => plan !== null,
-  )
+  // 顺序固定：先「亮字 + 最轻的同色系柔化底」，它不行才退回同族暗字。
+  // 不按"底纹够不够亮"临时改优先级 —— 那样浅色花底会被判成浅色材质直接压暗字，
+  // 而用户要的始终是亮字。
+  const preferred = [scrimPlan, darkPlan].find((plan): plan is TextStyle => plan !== null)
   if (preferred) return preferred
 
   // 5) 两样都不行：宁可垫重一点，也不把 ID 压成读不清的颜色
