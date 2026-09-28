@@ -96,6 +96,7 @@ export function renderNameplate(
   canvas.dataset.textThreshold = String(idResult.style.threshold)
   canvas.dataset.textRoute = idResult.style.route
   canvas.dataset.textLines = String(idResult.lines.length)
+  canvas.dataset.textSample = `${idResult.sample.dark}/${idResult.sample.light}`
   canvas.dataset.textScrim = idResult.style.scrim
     ? `${idResult.style.scrim.color}@${idResult.style.scrim.alpha}`
     : ''

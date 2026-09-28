@@ -88,6 +88,8 @@ export interface IdTextResult {
   shadow: string | null
   /** 完整的文字配色方案（亮字 / 描边 / 柔化底） */
   style: TextStyle
+  /** 实测到的文字背后最暗 / 最亮像素（调试与端到端验证用） */
+  sample: BackgroundSample
 }
 
 export function drawIdText(
@@ -140,6 +142,7 @@ export function drawIdText(
     placeholder: id.placeholder,
     shadow: style.outline ?? (usedShadow ? usedShadow.color : null),
     style,
+    sample: background,
   }
 }
 

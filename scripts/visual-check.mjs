@@ -202,6 +202,7 @@ function readTextStyle() {
     outline: canvas.dataset.textOutline ?? '',
     shadow: canvas.dataset.textShadow ?? '',
     scrim: canvas.dataset.textScrim ?? '',
+    sample: canvas.dataset.textSample ?? '',
     contrast: Number(canvas.dataset.textContrast ?? '0'),
     threshold: Number(canvas.dataset.textThreshold ?? '4.5'),
     route: canvas.dataset.textRoute ?? '',
@@ -985,12 +986,16 @@ async function main() {
     await writeFile(path.join(OUT_DIR, 'test-block-light-gold.png'), lightGold)
     await uploadTexture(page, lightGold, 'light_gold.png')
     const goldStyle = await page.evaluate(readTextStyle)
+    const goldSample = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="nameplate-canvas"]')
+      return canvas.dataset.textSample ?? ''
+    })
     check(
       goldStyle.route === 'scrim' &&
         /^#[0-9a-f]{6}$/.test(goldStyle.shadow) &&
         /^#[0-9a-f]{6}@/.test(goldStyle.scrim),
       '浅色花底：亮字 + 同族投影 + 最轻的一档柔化底（ID 不压黑）',
-      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 投影 ${goldStyle.shadow} · 柔化底 ${goldStyle.scrim}`,
+      `route=${goldStyle.route} · 文字 ${goldStyle.fill} · 投影 ${goldStyle.shadow} · 柔化底 ${goldStyle.scrim} · 采样 ${goldSample}`,
     )
     check(
       goldStyle.contrast >= goldStyle.threshold,
