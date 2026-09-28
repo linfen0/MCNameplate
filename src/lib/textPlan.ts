@@ -21,7 +21,15 @@ export const LARGE_TEXT_PX = 24
 export const LARGE_TEXT_CONTRAST = 3
 
 /** 先用多轻的柔化底试：再重就宁可换成同族暗色文字（不动底纹），也别把底纹糊住 */
-export const LIGHT_SCRIM_MAX = 0.44
+export const LIGHT_SCRIM_MAX = 0.58
+
+/**
+ * 底纹**所有**采样像素都比这个亮度亮（也就是一块均匀的浅色材质，例如纯白方块）时，
+ * 同族暗字天然够对比、零改动、也不用垫底 —— 这时才优先暗字。
+ * 注意判据是"最暗的像素也亮"，而不是"最亮的像素很亮"：
+ * 浅色花底的最亮像素同样很亮，但它的暗部需要亮字，不能因此把 ID 压黑。
+ */
+export const LIGHT_SURFACE_LUMINANCE = 0.6
 
 /**
  * 直接压在底纹上的文字，最多允许从色卡偏移几档。
@@ -174,10 +182,12 @@ export function planText(input: TextPlanInput): TextStyle {
       }
     : null
 
-  // 顺序固定：先「亮字 + 最轻的同色系柔化底」，它不行才退回同族暗字。
-  // 不按"底纹够不够亮"临时改优先级 —— 那样浅色花底会被判成浅色材质直接压暗字，
-  // 而用户要的始终是亮字。
-  const preferred = [scrimPlan, darkPlan].find((plan): plan is TextStyle => plan !== null)
+  // 均匀浅色材质（最暗的像素也亮）→ 同族暗字零改动，优先它；
+  // 其余情况一律优先「亮字 + 最轻的同色系柔化底」，只有它不行才退回暗字。
+  const uniformLightSurface = range.low >= LIGHT_SURFACE_LUMINANCE
+  const preferred = (uniformLightSurface ? [darkPlan, scrimPlan] : [scrimPlan, darkPlan]).find(
+    (plan): plan is TextStyle => plan !== null,
+  )
   if (preferred) return preferred
 
   // 5) 两样都不行：宁可垫重一点，也不把 ID 压成读不清的颜色

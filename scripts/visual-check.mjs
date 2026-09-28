@@ -1004,8 +1004,8 @@ async function main() {
     )
     const goldScrimAlpha = Number((goldStyle.scrim.split('@')[1] ?? '0'))
     check(
-      goldScrimAlpha > 0 && goldScrimAlpha <= 0.44,
-      '柔化底停在最轻的一档（≤44%），不把贴图糊住',
+      goldScrimAlpha > 0 && goldScrimAlpha <= 0.58,
+      '柔化底停在最轻的档位（≤58%），不把贴图糊住',
       `${Math.round(goldScrimAlpha * 100)}%`,
     )
     const goldMeasured = await page.evaluate(sampleTextColors, goldStyle)
