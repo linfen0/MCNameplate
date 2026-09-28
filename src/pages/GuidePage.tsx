@@ -44,7 +44,11 @@ export function GuidePage() {
 
       <Panel title="两块比例：黄金分割">
         <div className="space-y-3">
-          <Line>铭牌是横版矩形，沿宽度方向切成两块（头像 / ID），比例取黄金分割：</Line>
+          <Line>
+            比例只从标准表里挑（φ : 1 / 2 : 1 / 3 : 1 / 4 : 1 / 5 : 1，"自动"也是挑标准值），
+            选好之后由文字去适配矩形：量得下就单行、太宽就折行，字号按黄金分割定上限。
+            沿宽度方向切成两块（头像 / ID），比例取黄金分割：
+          </Line>
           <pre className="overflow-x-auto border-4 border-black bg-ink-900 p-3 font-mono text-xs text-grass-400">
 {`φ = (1 + √5) / 2 = ${PHI.toFixed(10)}
 长边 = 1/φ   = ${GOLDEN_MAJOR.toFixed(6)}  (${(GOLDEN_MAJOR * 100).toFixed(3)}%)
