@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { RgbaImage } from './types'
 import { BITMAP_FONTS } from './bitmapFontData'
 import {
   DEFAULT_FONT_ID,
@@ -178,6 +179,24 @@ describe('fitTextScale', () => {
   })
 })
 
+/** 墨迹包围盒（含投影/描边）：用来验证"块内居中" */
+function inkBounds(image: RgbaImage) {
+  let left = image.width
+  let right = -1
+  let top = image.height
+  let bottom = -1
+  for (let y = 0; y < image.height; y++) {
+    for (let x = 0; x < image.width; x++) {
+      if (image.data[(y * image.width + x) * 4 + 3] === 0) continue
+      if (x < left) left = x
+      if (x > right) right = x
+      if (y < top) top = y
+      if (y > bottom) bottom = y
+    }
+  }
+  return { left, right, top, bottom }
+}
+
 describe('renderTextBlock（不依赖任何字体文件）', () => {
   it('输出像素的 alpha 只有 0 或 255 —— 硬边是构造保证', () => {
     for (const font of PIXEL_FONTS) {
@@ -203,7 +222,7 @@ describe('renderTextBlock（不依赖任何字体文件）', () => {
     expect(opaque).toBeGreaterThan(20)
   })
 
-  it('阴影会让块变大，并把墨迹整体偏移 1 像素', () => {
+  it('阴影/描边让块变大，并且墨迹在块里四周留白相等（按块居中＝视觉居中）', () => {
     const font = getPixelFont('silkscreen')
     const plain = renderTextBlock({ text: 'A', font, fill: '#ffffff' })
     const shadowed = renderTextBlock({
@@ -213,8 +232,30 @@ describe('renderTextBlock（不依赖任何字体文件）', () => {
       shadow: { color: '#000000', offset: 1 },
     })
     expect(shadowed.padding).toBe(1)
-    expect(shadowed.image.width).toBe(plain.image.width + 2)
-    expect(shadowed.image.height).toBe(plain.image.height + 2)
+    expect(shadowed.image.width).toBe(plain.image.width + 3)
+    expect(shadowed.image.height).toBe(plain.image.height + 3)
+    const bounds = inkBounds(shadowed.image)
+    expect(bounds.left).toBe(shadowed.image.width - 1 - bounds.right)
+    expect(bounds.top).toBe(shadowed.image.height - 1 - bounds.bottom)
+  })
+
+  it('折行后每一行各自居中', () => {
+    const font = getPixelFont('mojangles')
+    const block = renderTextBlock({ text: 'NOTCH_\n2024', font, fill: '#ffffff', lineGap: 1 })
+    expect(block.lineOffsets.length).toBe(2)
+    // 短的那行（2024）起点更靠右，两行的墨迹中心对齐
+    const [first, second] = block.lineOffsets
+    expect(second).toBeGreaterThanOrEqual(first)
+    const bounds = inkBounds(block.image)
+    expect(bounds.left).toBe(block.image.width - 1 - bounds.right)
+  })
+
+  it('lineGap 只作用在行与行之间', () => {
+    const font = getPixelFont('mojangles')
+    const tight = renderTextBlock({ text: 'A\nB', font, fill: '#ffffff' })
+    const gap = renderTextBlock({ text: 'A\nB', font, fill: '#ffffff', lineGap: 2 })
+    expect(gap.image.height).toBe(tight.image.height + 2)
+    expect(gap.lineGap).toBe(2)
   })
 
   it('描边会把字块四周各扩 1 像素', () => {

@@ -198,6 +198,8 @@ export interface TextBlockOptions {
   /** 0-1，用于占位提示文字 */
   opacity?: number
   lineHeight?: number
+  /** 多行时行与行之间额外的空隙（原生像素） */
+  lineGap?: number
 }
 
 export interface TextBlock {
@@ -206,6 +208,13 @@ export interface TextBlock {
   /** 四周对称留白（原生像素） */
   padding: number
   lineHeight: number
+  /** 多行时行与行之间额外的空隙（原生像素） */
+  lineGap: number
+  /**
+   * 每一行内容在点阵里的起始列偏移。
+   * 折行后**每行各自居中**，所以导出端按字符切片时必须加上这个偏移。
+   */
+  lineOffsets: number[]
   /** 字库是否覆盖了全部字符 */
   supported: boolean
 }
@@ -404,9 +413,12 @@ export function measureTextBlock(options: TextBlockOptions): TextBlockMetrics {
   const advance = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
   const padding = (outline ? 1 : 0) + (shadow ? Math.max(0, shadow.offset) : 0)
   const lineHeight = options.lineHeight ?? textInkMetrics(font, text).height
+  const lineGap = Math.max(0, options.lineGap ?? 0)
+  // 投影是往右下偏的：把偏移量也计进点阵尺寸，块本身才是"墨迹居中"的
+  const shadowOffset = shadow ? Math.max(0, shadow.offset) : 0
   return {
-    width: advance + padding * 2,
-    height: lines.length * lineHeight + padding * 2,
+    width: advance + shadowOffset + padding * 2,
+    height: lines.length * lineHeight + (lines.length - 1) * lineGap + shadowOffset + padding * 2,
     padding,
     lineHeight,
   }
@@ -430,6 +442,12 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
   const lines = text.length > 0 ? text.split('\n') : ['']
   const metrics = measureTextBlock(options)
   const { padding, lineHeight } = metrics
+  const lineGap = Math.max(0, options.lineGap ?? 0)
+  const contentWidth = Math.max(1, ...lines.map((line) => measureText(font, line, letterSpacing).advance))
+  // 每一行在自己的内容宽度里居中：多行 ID 才不会左对齐挂着
+  const lineOffsets = lines.map((line) =>
+    padding + Math.max(0, Math.floor((contentWidth - measureText(font, line, letterSpacing).advance) / 2)),
+  )
   const ink = textInkMetrics(font, lines.join(''))
   const image = createImage(metrics.width, metrics.height)
   // 让第一行的墨迹顶边正好落在 padding 处
@@ -443,8 +461,8 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
     if (alpha === 0) return
     const tint = [rgba[0], rgba[1], rgba[2], alpha] as const
     for (let index = 0; index < lines.length; index++) {
-      const baseline = firstBaseline + index * lineHeight
-      let pen = padding
+      const baseline = firstBaseline + index * (lineHeight + lineGap)
+      let pen = lineOffsets[index]
       for (const char of lines[index]) {
         const glyph = glyphOf(font, char)
         if (!glyph) {
@@ -479,7 +497,7 @@ export function renderTextBlock(options: TextBlockOptions): TextBlock {
   if (shadow) paint(shadow.color, shadow.offset, shadow.offset)
   paint(fill, 0, 0)
 
-  return { image, padding, lineHeight, supported }
+  return { image, padding, lineHeight, lineGap, lineOffsets, supported }
 }
 
 /** 只需要点阵尺寸的东西（文字块本体，或只有尺寸的占位对象） */
